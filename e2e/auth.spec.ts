@@ -13,7 +13,7 @@ test("password salah ditolak dengan pesan", async ({ page }) => {
 });
 
 test("owner bisa login dan melihat shell aplikasi", async ({ page }) => {
-  await login(page, "owner", "nusa2026");
+  await login(page, "owner", process.env.OWNER_PASSWORD ?? "nusa2026");
   await page.waitForURL("/", { timeout: 15_000 });
   await expect(page.getByRole("heading", { name: "Kios Nusa" })).toBeVisible();
 });

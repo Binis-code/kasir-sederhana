@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { chromium } from "playwright-core";
 
 const BASE = process.env.PROBE_URL ?? "http://localhost:5173";
@@ -7,7 +8,7 @@ p.on("console", (m) => { if (m.type() === "error") console.log("CONSOLE-ERR:", m
 p.on("response", (r) => { if (r.url().includes("/trpc")) console.log("TRPC", r.status(), decodeURIComponent(r.url()).slice(0, 240)); });
 await p.goto(`${BASE}/login`, { waitUntil: "networkidle" });
 await p.fill("#username", "owner");
-await p.fill("#password", "nusa2026");
+await p.fill("#password", process.env.OWNER_PASSWORD ?? "nusa2026");
 await p.click("button[type=submit]");
 await p.waitForTimeout(2500);
 await p.goto(`${BASE}/pos`, { waitUntil: "networkidle" });

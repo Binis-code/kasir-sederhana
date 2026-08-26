@@ -3,7 +3,7 @@ import { db } from "../db.js";
 import { users, sales, purchases, inventoryMovements, cashEntries, receivablePayments } from "../../drizzle/schema.js";
 import { eq, desc, like, or, sql, and } from "drizzle-orm";
 import { z } from "zod";
-import { hashPassword } from "../auth.js";
+import { hashPassword, revokeUserTokens } from "../auth.js";
 
 const userCreateSchema = z.object({
   username: z.string().min(3).max(64),
@@ -107,6 +107,8 @@ export const usersRouter = router({
     const valid = await bcrypt.compare(input.oldPassword, u.passwordHash);
     if (!valid) throw new Error("Password lama salah");
     await db.update(users).set({ passwordHash: await hashPassword(input.newPassword) }).where(eq(users.id, ctx.user.id));
+    // Ganti password = cabut semua token lama (termasuk sesi ini; user login ulang).
+    await revokeUserTokens(ctx.user.id);
     return { ok: true };
   }),
 });

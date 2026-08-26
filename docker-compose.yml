@@ -9,7 +9,7 @@ services:
       MYSQL_USER: kios
       MYSQL_PASSWORD: kios123
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - kiosnusa-mysql:/var/lib/mysql
     healthcheck:

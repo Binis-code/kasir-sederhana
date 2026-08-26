@@ -65,11 +65,12 @@ export const reportsRouter = router({
       lte(sales.createdAt, new Date(`${input.to}T23:59:59`)),
       eq(sales.status, "completed")
     );
-    // Revenue minus cost-of-goods (based on variant costPrice at time of report; honest if cost=0)
+    // Laba memakai snapshot harga modal SAAT transaksi (cost_price_at_sale);
+    // jujur bila data modal belum lengkap (snapshot 0).
     const [rev] = await db.select({
       revenue: sql<number>`COALESCE(SUM(${saleItems.lineTotal}),0)`,
-      cogs: sql<number>`COALESCE(SUM(${saleItems.qty} * COALESCE((SELECT cost_price FROM product_variants WHERE product_variants.id = ${saleItems.variantId}),0)),0)`,
-      missingCost: sql<number>`SUM(CASE WHEN COALESCE((SELECT cost_price FROM product_variants WHERE product_variants.id = ${saleItems.variantId}),0) = 0 THEN 1 ELSE 0 END)`,
+      cogs: sql<number>`COALESCE(SUM(${saleItems.qty} * ${saleItems.costPriceAtSale}),0)`,
+      missingCost: sql<number>`SUM(CASE WHEN ${saleItems.costPriceAtSale} = 0 THEN 1 ELSE 0 END)`,
     }).from(saleItems).innerJoin(sales, eq(sales.id, saleItems.saleId)).where(where);
     const [exp] = await db.select({
       expense: sql<number>`COALESCE(SUM(CASE WHEN ${cashEntries.type}='expense' THEN ${cashEntries.amount} ELSE 0 END),0)`,

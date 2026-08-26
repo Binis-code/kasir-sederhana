@@ -1,7 +1,7 @@
 import { chromium } from "playwright-core";
 import fs from "node:fs";
 
-const BASE = "http://localhost:5174";
+const BASE = process.env.PROBE_URL ?? "http://localhost:5173";
 const OUT = "shots";
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -28,7 +28,7 @@ async function main() {
   const desktop = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const d = await desktop.newPage();
   await d.goto(BASE, { waitUntil: "networkidle" });
-  note("login page redirect saat belum auth", d.url().includes("/login"));
+  note("belum auth -> form login tampil", await d.locator("#username").isVisible());
   await d.screenshot({ path: `${OUT}/desktop-login.png` });
 
   await login(d);
@@ -84,6 +84,8 @@ async function main() {
 
   await m.waitForSelector("text=Perlu perhatian", { timeout: 10000 }).catch(() => undefined);
   await m.screenshot({ path: `${OUT}/mobile-dashboard.png` });
+  const fabDash = m.locator('button.fixed.right-4[aria-label="Scan barang ke kasir"]');
+  note("FAB scan tampil di dashboard (mobile)", await fabDash.isVisible());
 
   // bottom nav ada & konten tidak tertutup: scroll ke bawah lalu cek nav tetap di viewport & elemen terakhir bisa di-klik
   const bottomNav = m.locator('nav[aria-label="Navigasi bawah"]');
@@ -93,6 +95,8 @@ async function main() {
 
   await m.goto(`${BASE}/pos`, { waitUntil: "networkidle" });
   await m.screenshot({ path: `${OUT}/mobile-kasir.png` });
+  const fabPos = await m.locator('button.fixed.right-4[aria-label="Scan barang ke kasir"]').isVisible().catch(() => false);
+  note("FAB scan tersembunyi di Kasir (sudah ada tombol sendiri)", !fabPos);
 
   // sidebar tidak boleh muncul menimpa bottom-nav pada layar kecil
   const asideVisible = await m.locator("aside").first().isVisible().catch(() => false);

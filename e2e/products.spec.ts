@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 test("halaman produk: cari, buka form edit, dan sesuaikan stok", async ({ page }) => {
   await page.goto("/login");
   await page.fill("#username", "owner");
-  await page.fill("#password", "nusa2026");
+  await page.fill("#password", process.env.OWNER_PASSWORD ?? "nusa2026");
   await page.click("button[type=submit]");
   await page.waitForURL("/", { timeout: 15_000 });
 

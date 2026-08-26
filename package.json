@@ -12,8 +12,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio",
+    "db:push": "drizzle-kit push --config=drizzle-kit.config.ts",
+    "db:generate": "drizzle-kit generate --config=drizzle-kit.config.ts",
+    "db:migrate": "drizzle-kit migrate --config=drizzle-kit.config.ts",
+    "db:studio": "drizzle-kit studio --config=drizzle-kit.config.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-db.ps1"
   },

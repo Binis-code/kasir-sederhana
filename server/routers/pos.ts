@@ -108,16 +108,15 @@ export const posRouter = router({
         throw new Error("Nominal bayar kurang dari total (hanya kredit boleh kurang)");
       }
 
-      // Invoice number: INV-YYYYMMDD-NNNN (retry-safe, konsisten dengan zona
-      // waktu app — hitung dari prefix invoice, bukan CURDATE() server DB)
-      const invPrefix = `INV-${todayStr()}-`;
-      let invoiceNo = "";
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const [{ c }] = await tx.select({ c: sql<number>`count(*)` }).from(sales).where(sql`${sales.invoiceNo} LIKE ${`${invPrefix}%`}`);
-        invoiceNo = `${invPrefix}${String(Number(c) + 1 + attempt).padStart(4, "0")}`;
-        const dup = await tx.select({ id: sales.id }).from(sales).where(eq(sales.invoiceNo, invoiceNo)).limit(1);
-        if (!dup.length) break;
-      }
+      // Invoice number: INV-YYYYMMDD-NNNN — atomik via tabel counter +
+      // LAST_INSERT_ID trick (aman dari race antar transaksi bersamaan).
+      const day = todayStr();
+      await tx.execute(sql`INSERT INTO invoice_counters (day, last_no) VALUES (${day}, LAST_INSERT_ID(1)) ON DUPLICATE KEY UPDATE last_no = LAST_INSERT_ID(last_no + 1)`);
+      const seqRes = await tx.execute(sql`SELECT LAST_INSERT_ID() AS seq`);
+      // mysql2 mengembalikan [rows, fields] saat prepared execute — ambil baris pertama
+      const firstRow = (Array.isArray(seqRes) ? seqRes[0] : (seqRes as { rows: unknown[] }).rows) as unknown;
+      const seqVal = (Array.isArray(firstRow) ? firstRow[0] : firstRow) as { seq?: number | string } | undefined;
+      const invoiceNo = `INV-${day}-${String(Number(seqVal?.seq ?? 0)).padStart(4, "0")}`;
 
       const changeAmount = Math.max(0, input.paidAmount - total);
       const unpaid = total - Math.min(input.paidAmount, total);
@@ -151,6 +150,7 @@ export const posRouter = router({
           name: `${line.variant.productName} — ${line.variant.label}`,
           qty: line.qty,
           unitPrice: line.unitPrice,
+          costPriceAtSale: line.variant.costPrice,
           discount: line.discount,
           lineTotal: line.lineTotal,
         });
@@ -166,10 +166,6 @@ export const posRouter = router({
           note: `Penjualan ${invoiceNo}`,
           createdBy: ctx.user.id,
         });
-        await tx.insert(searchFrequency).values({
-          skuKey: `${line.variant.productId}:${line.variant.id}`,
-          count: 1,
-        }).onDuplicateKeyUpdate({ set: { count: sql`${searchFrequency.count} + 1` } });
       }
 
       await tx.insert(salePayments).values({
@@ -255,6 +251,16 @@ export const posRouter = router({
     }).from(productVariants).innerJoin(products, eq(products.id, productVariants.productId))
       .where(and(eq(productVariants.id, input.variantId), eq(productVariants.isActive, true))).limit(1);
     return v ?? null;
+  }),
+
+  // Catat frekuensi PEMILIHAN hasil pencarian/scan (bukan saat checkout) —
+  // sesuai spec: "Sering dicari" = produk yang sering dipilih pengguna.
+  recordPick: protectedProcedure.input(z.object({ variantId: z.number().int().positive() })).mutation(async ({ input }) => {
+    const [v] = await db.select({ productId: productVariants.productId }).from(productVariants).where(eq(productVariants.id, input.variantId)).limit(1);
+    if (!v) return { ok: false };
+    await db.insert(searchFrequency).values({ skuKey: `${v.productId}:${input.variantId}`, count: 1 })
+      .onDuplicateKeyUpdate({ set: { count: sql`${searchFrequency.count} + 1` } });
+    return { ok: true };
   }),
 
   frequentSkuKeys: protectedProcedure.query(async () => {

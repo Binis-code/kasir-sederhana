@@ -200,7 +200,7 @@ export function AppShell({ user, children }: { user: SessionUserLike; children: 
           </div>
         </header>
 
-        <main className="flex-1 pb-[calc(72px+env(safe-area-inset-bottom))] lg:pb-6">
+        <main className="flex-1 pb-[calc(148px+env(safe-area-inset-bottom))] lg:pb-6">
           {children}
         </main>
       </div>

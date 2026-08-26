@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 async function login(page) {
   await page.goto("/login");
   await page.fill("#username", "owner");
-  await page.fill("#password", "nusa2026");
+  await page.fill("#password", process.env.OWNER_PASSWORD ?? "nusa2026");
   await page.click("button[type=submit]");
   await page.waitForURL("/", { timeout: 15_000 });
 }
@@ -39,11 +39,12 @@ test("deep link /pos?add=variantId memasukkan barang ke keranjang", async ({ pag
   await login(page);
 
   // ambil satu varian aktif dari API (konteks terotentikasi via cookie browser)
-  const variantId = await page.evaluate(async () => {
+  // password dioper sebagai argumen — `process` tidak ada di konteks browser
+  const variantId = await page.evaluate(async (pw) => {
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: "owner", password: "nusa2026" }),
+      body: JSON.stringify({ username: "owner", password: pw }),
     });
     void res;
     const r = await fetch("/trpc/products.list?input=" + encodeURIComponent(JSON.stringify({ limit: 30 })));
@@ -55,7 +56,7 @@ test("deep link /pos?add=variantId memasukkan barang ke keranjang", async ({ pag
       if (v) return v.id;
     }
     return 0;
-  });
+  }, process.env.OWNER_PASSWORD ?? "nusa2026");
   test.skip(!variantId, "tidak ada varian aktif berstok di data demo");
 
   await page.goto(`/pos?add=${variantId}`);

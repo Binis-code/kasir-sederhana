@@ -5,7 +5,7 @@ import { createServer } from "http";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "./routers/_app.js";
 import { createContext } from "./trpc/index.js";
-import { verifyPasswordHash, createToken, getUserByUsername, updateLastLogin, getSessionFromRequest } from "./auth.js";
+import { verifyPasswordHash, createToken, getUserByUsername, updateLastLogin, getSessionFromRequest, revokeUserTokens } from "./auth.js";
 
 const app = express();
 app.use(express.json());
@@ -52,6 +52,7 @@ app.post("/api/auth/login", async (req, res) => {
       username: user.username,
       name: user.name,
       role: user.role as "owner" | "admin" | "kasir",
+      ver: user.tokenVersion,
     });
     res.cookie("kios_session", token, {
       httpOnly: true,
@@ -67,7 +68,10 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-app.post("/api/auth/logout", (_req, res) => {
+app.post("/api/auth/logout", async (req, res) => {
+  // Cabut token di sisi server (semua perangkat) lalu hapus cookie.
+  const user = await getSessionFromRequest(req);
+  if (user) await revokeUserTokens(user.id);
   res.clearCookie("kios_session", { path: "/" });
   res.json({ ok: true });
 });

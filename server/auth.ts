@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { SignJWT, jwtVerify } from "jose";
+import { sql } from "drizzle-orm";
 import { db } from "./db.js";
 import { users } from "../drizzle/schema.js";
 import { eq } from "drizzle-orm";
@@ -7,11 +8,17 @@ import { eq } from "drizzle-orm";
 const JWT_SECRET = process.env.JWT_SECRET ?? "dev-secret-change-me";
 const key = new TextEncoder().encode(JWT_SECRET);
 
+// Fail-fast: jangan pernah jalankan produksi dengan secret bawaan/kosong.
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === "production") {
+  throw new Error("JWT_SECRET wajib diset di environment saat NODE_ENV=production");
+}
+
 export type SessionUser = {
   id: number;
   username: string;
   name: string;
   role: "owner" | "admin" | "kasir";
+  ver: number; // users.token_version saat login — mismatch = token dicabut
 };
 
 export async function hashPassword(password: string): Promise<string> {
@@ -35,7 +42,7 @@ export async function createToken(user: SessionUser): Promise<string> {
 export async function verifyToken(token: string): Promise<SessionUser | null> {
   try {
     const { payload } = await jwtVerify(token, key);
-    if (typeof payload.id !== "number" || typeof payload.role !== "string") return null;
+    if (typeof payload.id !== "number" || typeof payload.role !== "string" || typeof payload.ver !== "number") return null;
     return payload as unknown as SessionUser;
   } catch {
     return null;
@@ -49,7 +56,16 @@ export async function getSessionFromRequest(req: { cookies?: Record<string, stri
     token = parseCookie(header).kios_session;
   }
   if (!token) return null;
-  return verifyToken(token);
+  const user = await verifyToken(token);
+  if (!user) return null;
+  // Revokasi: token lama (ver beda / user terhapus) langsung gugur.
+  const [row] = await db.select({ tokenVersion: users.tokenVersion }).from(users).where(eq(users.id, user.id)).limit(1);
+  if (!row || row.tokenVersion !== user.ver) return null;
+  return user;
+}
+
+export async function revokeUserTokens(userId: number) {
+  await db.update(users).set({ tokenVersion: sql`${users.tokenVersion} + 1` }).where(eq(users.id, userId));
 }
 
 export function parseCookie(cookieHeader: string | null | undefined): Record<string, string> {

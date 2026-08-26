@@ -96,13 +96,14 @@ export default function Kasir({ role }: { role?: string }) {
     if (addVariantId <= 0 || handledAdd.current === String(addVariantId)) return;
     const v = variantDetail.data;
     if (v && v.variantId > 0) {
+      void recordPick.mutateAsync({ variantId: v.variantId }).catch(() => undefined);
       addToCart({ variantId: v.variantId, productId: v.productId, name: v.productName, label: v.label, price: v.sellingPrice, stock: v.stock });
       handledAdd.current = String(addVariantId);
       window.history.replaceState({}, "", "/pos");
     }
   }, [addVariantId, variantDetail.data]);
 
-  // barcode scan → lookup (single-shot)
+  // barcode scan → lookup (single-shot); scan dihitung sebagai pemilihan
   async function handleBarcode(code: string) {
     pushRecentQuery(code);
     const data = await lookupBarcode(code);
@@ -110,6 +111,7 @@ export default function Kasir({ role }: { role?: string }) {
       toast(`Barcode ${code} tidak ditemukan`, "err");
       return;
     }
+    void recordPick.mutateAsync({ variantId: data.variantId }).catch(() => undefined);
     addToCart({ variantId: data.variantId, productId: data.productId, name: data.name, label: data.label, price: data.sellingPrice, stock: data.stock });
     toast(`${data.name} ditambahkan`);
   }
@@ -136,6 +138,7 @@ export default function Kasir({ role }: { role?: string }) {
     },
     onError: (e) => setErr(e.message),
   });
+  const recordPick = trpc.pos.recordPick.useMutation();
 
   function resetCart() {
     setCart([]);

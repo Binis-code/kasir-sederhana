@@ -24,6 +24,8 @@ export const users = mysqlTable("users", {
   role: varchar("role", { length: 16 }).notNull().default("kasir"),
   loginMethod: varchar("login_method", { length: 32 }).notNull().default("password"),
   lastLoginAt: timestamp("last_login_at"),
+  // Naikkan untuk mencabut SEMUA token aktif user (logout paksa / ganti password)
+  tokenVersion: int("token_version").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
 }, (t) => ({
@@ -139,6 +141,8 @@ export const saleItems = mysqlTable("sale_items", {
   name: varchar("name", { length: 128 }).notNull(),
   qty: int("qty").notNull(),
   unitPrice: int("unit_price").notNull(),
+  // Snapshot harga modal saat transaksi agar laporan laba historis akurat
+  costPriceAtSale: int("cost_price_at_sale").notNull().default(0),
   discount: int("discount").notNull().default(0),
   lineTotal: int("line_total").notNull(),
 }, (t) => ({
@@ -282,6 +286,12 @@ export const searchFrequency = mysqlTable("search_frequency", {
   skuKey: varchar("sku_key", { length: 128 }).primaryKey(),
   count: int("count").notNull().default(0),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+});
+
+// Penghitung nomor invoice harian — atomik via LAST_INSERT_ID trick
+export const invoiceCounters = mysqlTable("invoice_counters", {
+  day: varchar("day", { length: 8 }).primaryKey(), // YYYYMMDD
+  lastNo: int("last_no").notNull().default(0),
 });
 
 export const usersRelations = relations(users, ({ many }) => ({

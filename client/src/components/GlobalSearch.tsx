@@ -17,6 +17,7 @@ export function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => 
 
   const recent = useMemo(() => (open ? getRecentQueries() : []), [open, submitted]);
   const freqQuery = trpc.pos.frequentSkuKeys.useQuery(undefined, { enabled: open });
+  const recordPick = trpc.pos.recordPick.useMutation();
   const localFreq = useMemo(() => (open ? getFrequencyMap() : {}), [open]);
 
   const searchQuery = trpc.products.search.useQuery(
@@ -31,6 +32,7 @@ export function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => 
 
   function pickVariant(variantId: number) {
     bumpSkuFrequency(String(variantId));
+    recordPick.mutate({ variantId });
     void utils.pos.frequentSkuKeys.invalidate();
     navigate(`/pos?add=${variantId}`);
     onClose();
