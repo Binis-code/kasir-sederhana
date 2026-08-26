@@ -82,22 +82,25 @@ export default function Kasir({ role }: { role?: string }) {
     bumpSkuFrequency(String(item.variantId));
   }
 
-  // deep link /pos?add=variantId
+  // deep link /pos?add=variantId (tahan dengan/tanpa tanda "?")
   const handledAdd = useRef<string>("");
+  const addVariantId = useMemo(() => {
+    const m = /(?:^|[?&])add=(\d+)/.exec(addParam ?? "");
+    return m ? Number(m[1]) : 0;
+  }, [addParam]);
   const variantDetail = trpc.pos.variantDetail.useQuery(
-    { variantId: Number(addParam.replace("?add=", "") || 0) },
-    { enabled: !!addParam && addParam.includes("add=") }
+    { variantId: addVariantId },
+    { enabled: addVariantId > 0 }
   );
   useEffect(() => {
-    const key = addParam ?? "";
-    if (!key.includes("add=") || handledAdd.current === key) return;
+    if (addVariantId <= 0 || handledAdd.current === String(addVariantId)) return;
     const v = variantDetail.data;
     if (v && v.variantId > 0) {
       addToCart({ variantId: v.variantId, productId: v.productId, name: v.productName, label: v.label, price: v.sellingPrice, stock: v.stock });
-      handledAdd.current = key;
+      handledAdd.current = String(addVariantId);
       window.history.replaceState({}, "", "/pos");
     }
-  }, [addParam, variantDetail.data]);
+  }, [addVariantId, variantDetail.data]);
 
   // barcode scan → lookup (single-shot)
   async function handleBarcode(code: string) {
