@@ -1,0 +1,22 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: kasir-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: kios_nusa
+      MYSQL_USER: kios
+      MYSQL_PASSWORD: kios123
+    ports:
+      - "3306:3306"
+    volumes:
+      - kiosnusa-mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ukios", "-pkios123"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  kiosnusa-mysql:

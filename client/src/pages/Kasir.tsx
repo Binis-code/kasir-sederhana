@@ -1,0 +1,445 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearch } from "wouter";
+import { trpc } from "../lib/trpc.js";
+import { formatRupiah } from "@shared/money.js";
+import { calcLineTotal, applyTransactionDiscount, applyVoucher } from "@shared/money.js";
+import { bumpSkuFrequency, pushRecentQuery } from "@shared/search-utils.js";
+import {
+  Button, Card, Input, Label, NativeSelect, Badge, Spinner, Modal,
+  EmptyState, cn, toast, ErrorText
+} from "../components/ui.js";
+import { BarcodeScanner } from "../components/BarcodeScanner.js";
+import { lookupBarcode } from "../lib/barcode-lookup.js";
+import { Search, ScanLine, Minus, Plus, Trash2, CheckCircle2, Printer, ShoppingCart } from "lucide-react";
+
+type CartLine = {
+  variantId: number;
+  productId: number;
+  name: string;
+  label: string;
+  price: number;
+  stock: number;
+  qty: number;
+  discount: number;
+  priceOverride: number | null;
+};
+
+type SuccessInfo = { saleId: number; invoiceNo: string; total: number; changeAmount: number };
+
+export default function Kasir({ role }: { role?: string }) {
+  const isAdmin = role === "owner" || role === "admin";
+  const addParam = useSearch();
+  const utils = trpc.useUtils();
+
+  // catalog
+  const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q), 250);
+    return () => clearTimeout(t);
+  }, [q]);
+  const productsQ = trpc.products.list.useQuery({ q: debouncedQ || undefined, limit: 60 });
+
+  // variant picker modal (multi-variant product)
+  const [pickProduct, setPickProduct] = useState<number | null>(null);
+  const detailQ = trpc.products.get.useQuery({ id: pickProduct! }, { enabled: pickProduct !== null });
+
+  // cart state
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [trxType, setTrxType] = useState<"fixed" | "percentage" | "">("");
+  const [trxValue, setTrxValue] = useState(0);
+  const [voucherInput, setVoucherInput] = useState("");
+  const [voucher, setVoucher] = useState<{ code: string; discount: number } | null>(null);
+  const [method, setMethod] = useState<"cash" | "qris" | "debit" | "kredit">("cash");
+  const [paid, setPaid] = useState(0);
+  const [customerName, setCustomerName] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [success, setSuccess] = useState<SuccessInfo | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
+  const cartRef = useRef(cart);
+  cartRef.current = cart;
+
+  function addToCart(item: { variantId: number; productId: number; name: string; label: string; price: number; stock: number }) {
+    setErr(null);
+    setCart(prev => {
+      const idx = prev.findIndex(l => l.variantId === item.variantId);
+      if (idx >= 0) {
+        const next = [...prev];
+        if (next[idx].qty + 1 > item.stock) {
+          toast(`Stok ${item.name} tidak cukup`, "err");
+          return prev;
+        }
+        next[idx] = { ...next[idx], qty: next[idx].qty + 1 };
+        return next;
+      }
+      if (item.stock < 1) {
+        toast(`Stok ${item.name} habis`, "err");
+        return prev;
+      }
+      return [...prev, { ...item, qty: 1, discount: 0, priceOverride: null }];
+    });
+    bumpSkuFrequency(String(item.variantId));
+  }
+
+  // deep link /pos?add=variantId
+  const handledAdd = useRef<string>("");
+  const variantDetail = trpc.pos.variantDetail.useQuery(
+    { variantId: Number(addParam.replace("?add=", "") || 0) },
+    { enabled: !!addParam && addParam.includes("add=") }
+  );
+  useEffect(() => {
+    const key = addParam ?? "";
+    if (!key.includes("add=") || handledAdd.current === key) return;
+    const v = variantDetail.data;
+    if (v && v.variantId > 0) {
+      addToCart({ variantId: v.variantId, productId: v.productId, name: v.productName, label: v.label, price: v.sellingPrice, stock: v.stock });
+      handledAdd.current = key;
+      window.history.replaceState({}, "", "/pos");
+    }
+  }, [addParam, variantDetail.data]);
+
+  // barcode scan → lookup (single-shot)
+  async function handleBarcode(code: string) {
+    pushRecentQuery(code);
+    const data = await lookupBarcode(code);
+    if (!data) {
+      toast(`Barcode ${code} tidak ditemukan`, "err");
+      return;
+    }
+    addToCart({ variantId: data.variantId, productId: data.productId, name: data.name, label: data.label, price: data.sellingPrice, stock: data.stock });
+    toast(`${data.name} ditambahkan`);
+  }
+
+  // totals (client display only — server recomputes)
+  const effPrice = (l: CartLine) => l.priceOverride ?? l.price;
+  const subtotal = useMemo(() => cart.reduce((s, l) => s + effPrice(l) * l.qty, 0), [cart]);
+  const itemDiscTotal = useMemo(() => cart.reduce((s, l) => s + Math.min(l.discount, effPrice(l) * l.qty), 0), [cart]);
+  const afterItem = subtotal - itemDiscTotal;
+  const trxDisc = trxType ? applyTransactionDiscount(afterItem, trxType, trxValue) : 0;
+  const afterTrx = Math.max(0, afterItem - trxDisc);
+  const voucherDisc = voucher ? applyVoucher(afterTrx, "fixed", voucher.discount, 0).discount : 0;
+  const total = Math.max(0, afterTrx - voucherDisc);
+  const change = Math.max(0, paid - total);
+  const unpaid = total - Math.min(paid, total);
+  const needsCredit = unpaid > 0;
+
+  const checkout = trpc.pos.checkout.useMutation({
+    onSuccess: (res) => {
+      for (const l of cartRef.current) bumpSkuFrequency(String(l.variantId));
+      setSuccess(res);
+      resetCart();
+      void utils.dashboard.summary.invalidate();
+    },
+    onError: (e) => setErr(e.message),
+  });
+
+  function resetCart() {
+    setCart([]);
+    setTrxType(""); setTrxValue(0); setVoucherInput(""); setVoucher(null);
+    setMethod("cash"); setPaid(0); setCustomerName(""); setDueDate(""); setErr(null);
+  }
+
+  async function validateVoucher() {
+    const code = voucherInput.trim();
+    if (!code) return;
+    try {
+      const res = await fetch(`/trpc/pos.validateVoucher?input=${encodeURIComponent(JSON.stringify({ json: { code, subtotal: afterTrx } }))}`).then(r => r.json());
+      const d = res?.result?.data?.json ?? res?.result?.data;
+      if (d?.valid) {
+        setVoucher({ code: d.code, discount: d.discount });
+        toast(`Voucher ${d.code} dipakai (-${formatRupiah(d.discount)})`);
+      } else {
+        setVoucher(null);
+        toast(d?.reason ?? "Voucher tidak valid", "err");
+      }
+    } catch {
+      toast("Gagal memvalidasi voucher", "err");
+    }
+  }
+
+  function submitCheckout() {
+    setErr(null);
+    if (!cart.length) return setErr("Keranjang kosong");
+    checkout.mutate({
+      items: cart.map(l => ({
+        variantId: l.variantId,
+        qty: l.qty,
+        discount: Math.min(l.discount, effPrice(l) * l.qty),
+        ...(l.priceOverride != null && l.priceOverride !== l.price ? { unitPrice: l.priceOverride } : {}),
+      })),
+      trxDiscountType: trxType || null,
+      trxDiscountValue: trxValue,
+      voucherCode: voucher?.code ?? null,
+      paymentMethod: method,
+      paidAmount: method === "cash" ? paid : (needsCredit ? paid : total),
+      customerName: customerName || null,
+      dueDate: dueDate || null,
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-4 p-4 lg:h-[calc(100vh-3.5rem)] lg:flex-row lg:overflow-hidden">
+      {/* LEFT: catalog */}
+      <section className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari produk untuk keranjang…" className="pl-9" aria-label="Cari produk" />
+          </div>
+          <Button variant="outline" size="icon" aria-label="Scan barcode" onClick={() => setScanOpen(true)}><ScanLine size={18} /></Button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {productsQ.isLoading ? <Spinner /> :
+           !productsQ.data?.items.length ? (
+            <EmptyState icon={<ShoppingCart size={28} />} title={q ? `Tidak ada produk “${q}”` : "Belum ada produk"} description="Tambahkan produk lewat menu Produk." />
+          ) : (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+              {productsQ.data.items.map(p => (
+                <button key={p.id}
+                  onClick={() => {
+                    if ((p as unknown as { variantCount?: number }).variantCount === undefined) {
+                      // open picker to choose variant
+                      setPickProduct(p.id);
+                    }
+                  }}
+                  className="flex min-h-[88px] flex-col justify-between rounded-xl border border-warm-200 bg-white p-3 text-left shadow-sm hover:border-brand-400"
+                >
+                  <div>
+                    <p className="line-clamp-2 text-sm font-semibold text-gray-800">{p.name}</p>
+                    <p className="text-[11px] text-gray-500">{p.category}{p.barcode ? ` · ${p.barcode}` : ""}</p>
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-between">
+                    <Badge tone={p.stock <= p.minStock ? "amber" : "neutral"}>stok {p.stock}</Badge>
+                    <span className="text-[10px] text-brand-700">pilih varian ›</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* RIGHT: cart */}
+      <section className="flex w-full shrink-0 flex-col lg:w-[380px]">
+        <Card className="flex min-h-0 flex-1 flex-col">
+          <div className="border-b border-warm-100 px-4 py-3">
+            <h2 className="text-sm font-bold text-gray-800">Keranjang ({cart.length} item)</h2>
+          </div>
+
+          {success ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+              <CheckCircle2 size={44} className="text-green-600" />
+              <p className="text-base font-bold text-gray-900">Transaksi berhasil</p>
+              <p className="text-sm text-gray-600">{success.invoiceNo} · Total {formatRupiah(success.total)}</p>
+              {success.changeAmount > 0 && <p className="text-sm text-brand-700">Kembalian {formatRupiah(success.changeAmount)}</p>}
+              <div className="mt-2 flex w-full max-w-xs flex-col gap-2">
+                <a href={`/receipt/${success.saleId}`}>
+                  <Button size="lg" className="w-full"><Printer size={16} /> Cetak struk</Button>
+                </a>
+                <Button variant="outline" size="lg" className="w-full" onClick={() => setSuccess(null)}>Transaksi baru</Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="min-h-[120px] flex-1 overflow-y-auto divide-y divide-warm-100">
+                {!cart.length ? (
+                  <EmptyState icon={<ShoppingCart size={24} />} title="Keranjang kosong" description="Pilih produk atau scan barcode." />
+                ) : cart.map((l, i) => (
+                  <div key={l.variantId} className="px-3 py-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-gray-800">{l.name}</p>
+                        <p className="text-[11px] text-gray-500">{l.label}{!isAdmin ? ` · ${formatRupiah(l.price)}` : ""}</p>
+                      </div>
+                      <button aria-label={`Hapus ${l.name}`} className="rounded p-1 text-gray-400 hover:text-red-600" onClick={() => setCart(c => c.filter(x => x.variantId !== l.variantId))}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-2">
+                      <div className="flex items-center gap-1">
+                        <Button variant="outline" size="icon" className="h-8 w-8" aria-label="Kurangi jumlah" disabled={l.qty <= 1}
+                          onClick={() => setCart(c => c.map((x, xi) => xi === i ? { ...x, qty: Math.max(1, x.qty - 1) } : x))}><Minus size={13} /></Button>
+                        <Input inputMode="numeric" className="h-8 w-12 px-1 text-center text-sm font-semibold" value={l.qty}
+                          aria-label={`Jumlah ${l.name}`}
+                          onChange={(e) => {
+                            const n = Number(e.target.value.replace(/\D/g, "")) || 0;
+                            if (n > l.stock) toast(`Stok ${l.name} hanya ${l.stock}`, "err");
+                            setCart(c => c.map((x, xi) => xi === i ? { ...x, qty: Math.min(Math.max(n, 1), l.stock) } : x));
+                          }} />
+                        <Button variant="outline" size="icon" className="h-8 w-8" aria-label="Tambah jumlah"
+                          onClick={() => {
+                            if (l.qty + 1 > l.stock) { toast("Stok tidak cukup", "err"); return; }
+                            setCart(c => c.map((x, xi) => xi === i ? { ...x, qty: x.qty + 1 } : x));
+                          }}><Plus size={13} /></Button>
+                      </div>
+
+                      {isAdmin && (
+                        <label className="flex items-center gap-1">
+                          <Label className="mb-0">Harga</Label>
+                          <Input inputMode="numeric" className="h-8 w-24 text-right" value={effPrice(l) || ""}
+                            aria-label={`Harga ${l.name}`}
+                            onChange={(e) => {
+                              const n = Number(e.target.value.replace(/\D/g, "")) || 0;
+                              setCart(c => c.map((x, xi) => xi === i ? { ...x, priceOverride: n } : x));
+                            }} />
+                        </label>
+                      )}
+
+                      <label className="flex items-center gap-1">
+                        <Label className="mb-0">Disk</Label>
+                        <Input inputMode="numeric" className="h-8 w-20 text-right" value={l.discount || ""}
+                          aria-label={`Diskon ${l.name}`}
+                          onChange={(e) => {
+                            const n = Number(e.target.value.replace(/\D/g, "")) || 0;
+                            setCart(c => c.map((x, xi) => xi === i ? { ...x, discount: n } : x));
+                          }} />
+                      </label>
+
+                      <span className="ml-auto w-24 text-right text-sm font-semibold">{formatRupiah(calcLineTotal(l.qty, effPrice(l), l.discount))}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* totals & payment */}
+              <div className="space-y-2.5 border-t border-warm-100 px-3 py-3">
+                <Row k="Subtotal" v={formatRupiah(subtotal)} />
+                {itemDiscTotal > 0 && <Row k="Diskon item" v={`-${formatRupiah(itemDiscTotal)}`} />}
+
+                <div className="flex items-center gap-1.5">
+                  <NativeSelect className="h-8 w-28" value={trxType} onChange={(e) => setTrxType(e.target.value as typeof trxType)} aria-label="Jenis diskon transaksi">
+                    <option value="">Diskon trx…</option>
+                    <option value="fixed">Rp</option>
+                    <option value="percentage">%</option>
+                  </NativeSelect>
+                  {trxType && (
+                    <Input inputMode="numeric" className="h-8 w-24 text-right" value={trxValue || ""}
+                      onChange={(e) => setTrxValue(Number(e.target.value.replace(/\D/g, "")) || 0)} aria-label="Nilai diskon transaksi" />
+                  )}
+                  <span className="ml-auto text-xs font-medium">{trxDisc > 0 ? `-${formatRupiah(trxDisc)}` : ""}</span>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <Input className="h-8 flex-1 uppercase" placeholder="Kode voucher" value={voucherInput} onChange={(e) => setVoucherInput(e.target.value.toUpperCase())} aria-label="Kode voucher" />
+                  <Button size="sm" variant="outline" className="h-8" onClick={() => void validateVoucher()}>Pakai</Button>
+                  {voucher && (
+                    <button className="text-xs text-red-600 underline" onClick={() => { setVoucher(null); setVoucherInput(""); }}>hapus</button>
+                  )}
+                </div>
+                {voucher && <Row k={`Voucher ${voucher.code}`} v={`-${formatRupiah(voucherDisc)}`} strong />}
+
+                <div className="flex justify-between border-t border-dashed border-warm-200 pt-2 text-base font-bold">
+                  <span>TOTAL</span><span className="text-brand-700">{formatRupiah(total)}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label>Metode bayar</Label>
+                    <NativeSelect value={method} onChange={(e) => setMethod(e.target.value as typeof method)}>
+                      <option value="cash">Cash</option>
+                      <option value="qris">QRIS</option>
+                      <option value="debit">Debit</option>
+                      <option value="kredit">Kredit (piutang)</option>
+                    </NativeSelect>
+                  </div>
+                  <div>
+                    <Label>Dibayar</Label>
+                    <Input inputMode="numeric" value={paid || ""} onChange={(e) => setPaid(Number(e.target.value.replace(/\D/g, "")) || 0)} placeholder="0" />
+                  </div>
+                </div>
+
+                {method === "cash" && (
+                  <div className="flex flex-wrap gap-1.5">
+                    <QuickAmt label="Pas" onClick={() => setPaid(total)} />
+                    <QuickAmt label="+10rb" onClick={() => setPaid(p => p + 10_000)} />
+                    <QuickAmt label="+50rb" onClick={() => setPaid(p => p + 50_000)} />
+                    <QuickAmt label="+100rb" onClick={() => setPaid(p => p + 100_000)} />
+                    <QuickAmt label="Reset" onClick={() => setPaid(0)} muted />
+                  </div>
+                )}
+
+                <Row k="Kembalian" v={formatRupiah(change)} />
+
+                {(needsCredit || method === "kredit") && (
+                  <div className="grid grid-cols-2 gap-2 rounded-lg bg-amber-50 p-2">
+                    <div>
+                      <Label>Nama pelanggan *</Label>
+                      <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Wajib" />
+                    </div>
+                    <div>
+                      <Label>Jatuh tempo *</Label>
+                      <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                    </div>
+                    <p className="col-span-2 text-[11px] text-amber-700">Piutang {formatRupiah(unpaid)} akan dicatat.</p>
+                  </div>
+                )}
+
+                <ErrorText message={err} />
+                <Button size="lg" className="min-h-[48px] w-full" disabled={!cart.length || checkout.isPending} onClick={submitCheckout}>
+                  {checkout.isPending ? "Memproses…" : needsCredit ? "Simpan & catat piutang" : `Bayar ${formatRupiah(total)}`}
+                </Button>
+              </div>
+            </>
+          )}
+        </Card>
+      </section>
+
+      {/* Variant picker */}
+      <Modal open={pickProduct !== null} onClose={() => setPickProduct(null)} title="Pilih varian">
+        {detailQ.isLoading ? <Spinner /> : (
+          <ul className="space-y-2">
+            {detailQ.data?.variants.filter(v => v.isActive).map(v => (
+              <li key={v.id}>
+                <button
+                  className={cn("flex w-full items-center justify-between rounded-lg border p-3 text-left hover:border-brand-500",
+                    v.stock < 1 ? "opacity-50" : "border-warm-200")}
+                  disabled={v.stock < 1}
+                  onClick={() => {
+                    addToCart({ variantId: v.id, productId: v.productId, name: detailQ.data!.name, label: v.label, price: v.sellingPrice, stock: v.stock });
+                    setPickProduct(null);
+                  }}>
+                  <span>
+                    <span className="block text-sm font-medium">{v.label}</span>
+                    <span className="block text-[11px] text-gray-500">{v.barcode ?? ""}</span>
+                    <Badge tone={v.stock < 1 ? "red" : v.stock <= 10 ? "amber" : "neutral"}>stok {v.stock}</Badge>
+                  </span>
+                  <span className="text-sm font-bold text-brand-700">{formatRupiah(v.sellingPrice)}</span>
+                </button>
+              </li>
+            ))}
+            {detailQ.data && detailQ.data.variants.filter(v => v.isActive).length === 0 && (
+              <p className="text-sm text-gray-500">Tidak ada varian aktif.</p>
+            )}
+          </ul>
+        )}
+      </Modal>
+
+      {scanOpen && (
+        <BarcodeScanner
+          onDetect={(code) => { setScanOpen(false); void handleBarcode(code); }}
+          onClose={() => setScanOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function Row({ k, v, strong }: { k: string; v: string; strong?: boolean }) {
+  return (
+    <div className={cn("flex justify-between text-sm", strong ? "font-bold text-gray-900" : "text-gray-600")}>
+      <span>{k}</span><span>{v}</span>
+    </div>
+  );
+}
+
+function QuickAmt({ label, onClick, muted }: { label: string; onClick: () => void; muted?: boolean }) {
+  return (
+    <button type="button" onClick={onClick}
+      className={cn("min-h-[32px] rounded-full border px-3 text-xs font-medium",
+        muted ? "border-warm-200 text-gray-500" : "border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100")}>
+      {label}
+    </button>
+  );
+}

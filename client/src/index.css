@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #eef7f1;
+  --color-brand-100: #d6ecdd;
+  --color-brand-200: #aed9bd;
+  --color-brand-300: #7fc098;
+  --color-brand-400: #55a67a;
+  --color-brand-500: #3c8b61;
+  --color-brand-600: #2f6b4f;
+  --color-brand-700: #285a43;
+  --color-brand-800: #214737;
+  --color-brand-900: #1b382d;
+  --color-warm-25: #fbf9f6;
+  --color-warm-50: #faf7f2;
+  --color-warm-100: #f3eee6;
+  --color-warm-200: #e7dfd2;
+  --color-warm-300: #d4c7b2;
+  --color-danger-500: #dc2626;
+  --color-danger-50: #fef2f2;
+  --color-warn-500: #d97706;
+  --color-warn-50: #fffbeb;
+  --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+html {
+  font-family: var(--font-sans);
+}
+
+body {
+  background: var(--color-warm-50);
+  color: #1f2937;
+  margin: 0;
+  min-height: 100vh;
+}
+
+* { box-sizing: border-box; }
+
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [role="button"]:focus-visible, [href]:focus-visible {
+  outline: 2px solid var(--color-brand-600);
+  outline-offset: 2px;
+}
+
+/* Thermal receipt printing */
+@page {
+  size: 80mm auto;
+  margin: 0;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .receipt-area, .receipt-area * {
+    visibility: visible;
+  }
+  .receipt-area {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 80mm !important;
+    background: white !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
