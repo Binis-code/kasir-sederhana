@@ -69,6 +69,22 @@ async function main() {
   await d.waitForTimeout(700);
   await d.screenshot({ path: `${OUT}/desktop-search.png` });
   note("global search overlay terbuka", true);
+
+  // Customer Display (/display)
+  await d.goto(`${BASE}/display`, { waitUntil: "networkidle" });
+  const displayTitle = await d.locator("h1:has-text('Kios Nusa')").isVisible();
+  note("customer facing display (/display) tampil", displayTitle);
+
+  // Multi-Cabang & Transfer (/outlets)
+  await d.goto(`${BASE}/outlets`, { waitUntil: "networkidle" });
+  const outletsHeader = await d.locator("h2:has-text('Manajemen Multi-Cabang')").isVisible();
+  note("halaman multi-cabang (/outlets) aktif", outletsHeader);
+
+  // Barcode & Price Tag Generator (/barcodes)
+  await d.goto(`${BASE}/barcodes`, { waitUntil: "networkidle" });
+  const barcodeHeader = await d.locator("h2:has-text('Cetak Barcode')").isVisible();
+  note("halaman cetak barcode & rak (/barcodes) aktif", barcodeHeader);
+
   await desktop.close();
 
   // ---------- MOBILE 375x812 ----------
@@ -88,7 +104,7 @@ async function main() {
   const fabDash = m.locator('button.fixed.right-4[aria-label="Scan barang ke kasir"]');
   note("FAB scan tampil di dashboard (mobile)", await fabDash.isVisible());
 
-  // bottom nav ada & konten tidak tertutup: scroll ke bawah lalu cek nav tetap di viewport & elemen terakhir bisa di-klik
+  // bottom nav ada & menempel di bawah viewport
   const bottomNav = m.locator('nav[aria-label="Navigasi bawah"]');
   note("bottom navigation tampil", await bottomNav.isVisible());
   const navBox = await bottomNav.boundingBox();
@@ -99,20 +115,22 @@ async function main() {
   const fabPos = await m.locator('button.fixed.right-4[aria-label="Scan barang ke kasir"]').isVisible().catch(() => false);
   note("FAB scan tersembunyi di Kasir (sudah ada tombol sendiri)", !fabPos);
 
-  // sidebar tidak boleh muncul menimpa bottom-nav pada layar kecil
-  const asideVisible = await m.locator("aside").first().isVisible().catch(() => false);
-  note("sidebar desktop tidak tampil di mobile", !asideVisible);
+  const sidebarVisible = await m.locator('aside[aria-label="Sidebar desktop"]').isVisible().catch(() => false);
+  note("sidebar desktop tidak tampil di mobile", !sidebarVisible);
 
   await m.goto(`${BASE}/products`, { waitUntil: "networkidle" });
   await m.screenshot({ path: `${OUT}/mobile-produk.png` });
+
   await mobile.close();
-
   await browser.close();
-  console.log(results.join("\n"));
 
-  const failed = results.filter(r => r.startsWith("FAIL")).length;
-  console.log(`\n${results.length - failed}/${results.length} checks passed`);
-  process.exit(failed ? 1 : 0);
+  console.log(results.join("\n"));
+  const passed = results.filter((r) => r.startsWith("PASS")).length;
+  console.log(`\n${passed}/${results.length} checks passed`);
+  if (passed !== results.length) process.exit(1);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
