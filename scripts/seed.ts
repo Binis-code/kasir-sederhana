@@ -14,7 +14,7 @@ async function upsertUser(username: string, password: string, name: string, role
   const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
   if (existing) return existing.id;
   const passwordHash = await hashPassword(password);
-  const res = await db.insert(users).values({ username, name, role, passwordHash, loginMethod: "password" }).$returningId();
+  const res = await db.insert(users).values({ username, name, role, passwordHash, loginMethod: "password" }).returning({ id: users.id });
   console.log(`+ user ${username} (${role})`);
   return Number(res[0].id);
 }
@@ -82,7 +82,7 @@ async function main() {
   for (const s of SUPPLIERS) {
     const [row] = await db.select({ id: suppliers.id }).from(suppliers).where(eq(suppliers.name, s.name)).limit(1);
     if (row) { supplierIds.push(row.id); continue; }
-    const res = await db.insert(suppliers).values(s).$returningId();
+    const res = await db.insert(suppliers).values(s).returning({ id: suppliers.id });
     supplierIds.push(Number(res[0].id));
     console.log(`+ pemasok ${s.name}`);
   }
@@ -94,7 +94,7 @@ async function main() {
 
     const pres = await db.insert(products).values({
       name: sp.name, category: sp.category, barcode: sp.barcode, minStock: sp.minStock,
-    }).$returningId();
+    }).returning({ id: products.id });
     const productId = Number(pres[0].id);
 
     let totalStock = 0;
@@ -102,7 +102,7 @@ async function main() {
       const vres = await db.insert(productVariants).values({
         productId, label: v.label, barcode: v.barcode,
         sellingPrice: v.sellingPrice, costPrice: v.costPrice, stock: v.stock,
-      }).$returningId();
+      }).returning({ id: productVariants.id });
       const variantId = Number(vres[0].id);
       if (v.stock > 0) {
         await db.insert(inventoryMovements).values({
@@ -155,7 +155,7 @@ async function main() {
           invoiceNo: demoInvoice, cashierId: ownerId, subtotal,
           discountTotal: 0, total, paymentMethod: "cash",
           paidAmount: Math.min(paidCash, total), changeAmount: change, status: "completed",
-        }).$returningId();
+        }).returning({ id: sales.id });
         const saleId = Number(sres[0].id);
         for (const l of lines) {
           await db.insert(saleItems).values({
@@ -183,7 +183,7 @@ async function main() {
             discountTotal: 0, total: rTotal, paymentMethod: "kredit",
             paidAmount: 0, changeAmount: 0, status: "completed",
             customerName: "Warung Bu Sari", dueDate: dueStr,
-          }).$returningId();
+          }).returning({ id: sales.id });
           const saleId2 = Number(sres2[0].id);
           await db.insert(saleItems).values({
             saleId: saleId2, productId: mie.productId, variantId: mie.id,

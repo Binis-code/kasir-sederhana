@@ -1,7 +1,7 @@
 import { router, adminProcedure, protectedProcedure } from "../trpc/index.js";
 import { db } from "../db.js";
-import { purchases, purchaseItems, productVariants, products, suppliers, inventoryMovements } from "../../drizzle/schema.js";
-import { eq, desc, sql, and } from "drizzle-orm";
+import { purchases, purchaseItems, productVariants, products, suppliers, inventoryMovements, saleItems, sales } from "../../drizzle/schema.js";
+import { eq, desc, sql, and, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 const itemSchema = z.object({
@@ -90,7 +90,7 @@ export const purchasesRouter = router({
         notes: input.notes ?? null,
         expectedAt: input.expectedAt || null,
         createdBy: ctx.user.id,
-      }).$returningId();
+      }).returning({ id: purchases.id });
       for (const it of input.items) {
         await tx.insert(purchaseItems).values({
           purchaseId: p.id,
@@ -119,7 +119,6 @@ export const purchasesRouter = router({
 
       const items = await tx.select().from(purchaseItems).where(eq(purchaseItems.purchaseId, input.purchaseId));
       const itemMap = new Map(items.map(i => [i.id, i]));
-      // kuantitas tambahan per item dalam request ini (deteksi duplikat itemId)
       const appliedInRequest = new Map<number, number>();
 
       for (const r of input.receipts) {
@@ -156,8 +155,6 @@ export const purchasesRouter = router({
         });
       }
 
-      // Status akhir dihitung dari SEMUA item pembelian (item yang tak disebut
-      // di receipts pun ikut menentukan apakah penerimaan sudah penuh).
       const finalAllFull = items.every(it => {
         const extra = appliedInRequest.get(it.id) ?? 0;
         return it.qtyReceived + extra >= it.qtyOrdered;
@@ -179,7 +176,63 @@ export const purchasesRouter = router({
     await db.update(purchases).set({ status: "cancelled" }).where(eq(purchases.id, input.id));
     return { ok: true };
   }),
+
+  // ---- Smart Reorder Recommendation ----
+  reorderRecommendations: protectedProcedure.query(async () => {
+    // 7 days ago timestamp
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const pastSales = await db.select({
+      variantId: saleItems.variantId,
+      qtySold: sql<number>`SUM(${saleItems.qty})`,
+    }).from(saleItems)
+      .innerJoin(sales, eq(sales.id, saleItems.saleId))
+      .where(and(eq(sales.status, "completed"), gte(sales.createdAt, sevenDaysAgo)))
+      .groupBy(saleItems.variantId);
+
+    const salesVelocityMap = new Map(pastSales.map(s => [s.variantId, Number(s.qtySold) / 7]));
+
+    const variants = await db.select({
+      variantId: productVariants.id,
+      productId: products.id,
+      productName: products.name,
+      variantLabel: productVariants.label,
+      barcode: productVariants.barcode,
+      stock: productVariants.stock,
+      costPrice: productVariants.costPrice,
+      sellingPrice: productVariants.sellingPrice,
+      minStock: products.minStock,
+    }).from(productVariants)
+      .innerJoin(products, eq(products.id, productVariants.productId))
+      .where(and(eq(products.isActive, true), eq(productVariants.isActive, true)));
+
+    const recommendations = variants.map(v => {
+      const dailyVelocity = salesVelocityMap.get(v.variantId) ?? 0;
+      const daysRemaining = dailyVelocity > 0 ? v.stock / dailyVelocity : (v.stock <= v.minStock ? 0 : 999);
+      const isLow = v.stock <= v.minStock || daysRemaining < 7;
+
+      if (!isLow) return null;
+
+      const targetStock = Math.max(v.minStock * 2, Math.ceil(dailyVelocity * 14), 10);
+      const suggestedQty = Math.max(targetStock - v.stock, v.minStock > 0 ? v.minStock : 5);
+
+      return {
+        variantId: v.variantId,
+        productId: v.productId,
+        productName: v.productName,
+        variantLabel: v.variantLabel,
+        barcode: v.barcode,
+        stock: v.stock,
+        minStock: v.minStock,
+        costPrice: v.costPrice,
+        dailyVelocity: Math.round(dailyVelocity * 10) / 10,
+        daysRemaining: Math.round(daysRemaining * 10) / 10,
+        suggestedQty,
+        estimatedCost: suggestedQty * v.costPrice,
+      };
+    }).filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => a.daysRemaining - b.daysRemaining);
+
+    return recommendations;
+  }),
 });
-
-
-

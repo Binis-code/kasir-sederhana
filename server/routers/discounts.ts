@@ -1,7 +1,7 @@
 import { router, adminProcedure, protectedProcedure } from "../trpc/index.js";
 import { db } from "../db.js";
 import { discountRules, vouchers } from "../../drizzle/schema.js";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 
 const ruleSchema = z.object({
@@ -25,7 +25,7 @@ const voucherSchema = ruleSchema.extend({
 export const discountsRouter = router({
   listRules: protectedProcedure.query(() => db.select().from(discountRules).orderBy(desc(discountRules.createdAt)).limit(100)),
   createRule: adminProcedure.input(ruleSchema).mutation(async ({ input }) => {
-    const [r] = await db.insert(discountRules).values(input).$returningId();
+    const [r] = await db.insert(discountRules).values(input).returning({ id: discountRules.id });
     return { id: r.id };
   }),
   updateRule: adminProcedure.input(ruleSchema.extend({ id: z.number().int().positive() })).mutation(async ({ input }) => {
@@ -39,7 +39,7 @@ export const discountsRouter = router({
     const code = input.code.toUpperCase();
     const dup = await db.select({ id: vouchers.id }).from(vouchers).where(eq(vouchers.code, code)).limit(1);
     if (dup.length) throw new Error("Kode voucher sudah ada");
-    const [v] = await db.insert(vouchers).values({ ...input, code }).$returningId();
+    const [v] = await db.insert(vouchers).values({ ...input, code }).returning({ id: vouchers.id });
     return { id: v.id };
   }),
   updateVoucher: adminProcedure.input(voucherSchema.partial().extend({ id: z.number().int().positive() })).mutation(async ({ input }) => {
@@ -49,6 +49,3 @@ export const discountsRouter = router({
     return { ok: true };
   }),
 });
-
-
-

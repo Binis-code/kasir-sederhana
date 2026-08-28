@@ -2,7 +2,7 @@ import { useState } from "react";
 import { trpc } from "../lib/trpc.js";
 import { formatRupiah } from "@shared/money.js";
 import { Button, Card, Input, Label, NativeSelect, Badge, Spinner, Modal, EmptyState, toast, formatDate, cn } from "../components/ui.js";
-import { Plus, PackageCheck } from "lucide-react";
+import { Plus, PackageCheck, Sparkles, TrendingUp, AlertTriangle } from "lucide-react";
 
 const STATUS_TONE: Record<string, "neutral" | "green" | "amber" | "blue" | "red"> = {
   ordered: "blue", partial: "amber", received: "green", cancelled: "red", draft: "neutral",
@@ -11,14 +11,31 @@ const STATUS_TONE: Record<string, "neutral" | "green" | "amber" | "blue" | "red"
 export default function Purchases() {
   const [creating, setCreating] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [reorderOpen, setReorderOpen] = useState(false);
+  const [prefilledItems, setPrefilledItems] = useState<ItemRow[] | null>(null);
   const utils = trpc.useUtils();
   const list = trpc.purchases.list.useQuery({ limit: 50 });
+  const reorderQ = trpc.purchases.reorderRecommendations.useQuery();
 
   return (
     <div className="space-y-4 p-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-bold text-gray-800">Pembelian ke Pemasok</h2>
-        <Button onClick={() => setCreating(true)}><Plus size={16} /> Pembelian baru</Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setReorderOpen(true)}
+            className="border-brand-300 bg-brand-50 text-brand-800 hover:bg-brand-100"
+          >
+            <Sparkles size={16} /> Saran Reorder
+            {reorderQ.data && reorderQ.data.length > 0 && (
+              <Badge tone="amber" className="ml-1">{reorderQ.data.length}</Badge>
+            )}
+          </Button>
+          <Button onClick={() => { setPrefilledItems(null); setCreating(true); }}>
+            <Plus size={16} /> Pembelian baru
+          </Button>
+        </div>
       </div>
 
       {list.isLoading ? <Spinner /> : !list.data?.items.length ? (
@@ -39,18 +56,86 @@ export default function Purchases() {
         </div>
       )}
 
-      {creating && <PurchaseCreateModal onClose={(c) => { setCreating(false); if (c) void utils.purchases.list.invalidate(); }} />}
+      {creating && (
+        <PurchaseCreateModal
+          initialItems={prefilledItems ?? []}
+          onClose={(c) => {
+            setCreating(false);
+            setPrefilledItems(null);
+            if (c) void utils.purchases.list.invalidate();
+          }}
+        />
+      )}
+
       {detailId !== null && <PurchaseReceiveModal id={detailId} onClose={(c) => {
         setDetailId(null);
         if (c) void utils.purchases.list.invalidate();
       }} />}
+
+      {/* Smart Reorder Modal */}
+      <Modal open={reorderOpen} onClose={() => setReorderOpen(false)} title="Rekomendasi Reorder Stok Otomatis" wide>
+        <div className="space-y-3">
+          <p className="text-xs text-gray-600">
+            Dianalisis berdasarkan kecepatan penjualan 7 hari terakhir (*sales velocity*) dan batas stok minimum.
+          </p>
+
+          {reorderQ.isLoading ? <Spinner /> :
+           !reorderQ.data?.length ? (
+            <EmptyState icon={<Sparkles size={28} />} title="Stok semua produk dalam kondisi aman" description="Tidak ada item yang menipis atau memerlukan pemesanan darurat saat ini." />
+          ) : (
+            <div className="space-y-2">
+              <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+                {reorderQ.data.map(r => (
+                  <div key={r.variantId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warm-200 bg-white p-3 shadow-sm">
+                    <div className="min-w-[180px] flex-1">
+                      <p className="font-semibold text-gray-800">{r.productName} — {r.variantLabel}</p>
+                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <AlertTriangle size={13} className="text-amber-600" /> Sisa stok: <b>{r.stock}</b> (min: {r.minStock})
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <TrendingUp size={13} className="text-brand-600" /> Laju: <b>{r.dailyVelocity} pcs/hari</b>
+                        </span>
+                        <span>Estimasi habis: <b>{r.daysRemaining > 90 ? "Stok mati" : `${r.daysRemaining} hari`}</b></span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-xs text-gray-500">Saran order</p>
+                        <p className="text-sm font-bold text-brand-700">{r.suggestedQty} pcs</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setReorderOpen(false)}>Tutup</Button>
+                <Button onClick={() => {
+                  const autoItems: ItemRow[] = (reorderQ.data ?? []).map(r => ({
+                    variantId: r.variantId,
+                    nameText: `${r.productName} — ${r.variantLabel}`,
+                    qtyOrdered: r.suggestedQty,
+                    unitCost: r.costPrice > 0 ? r.costPrice : Math.round(r.costPrice * 0.7),
+                  }));
+                  setPrefilledItems(autoItems);
+                  setReorderOpen(false);
+                  setCreating(true);
+                }}>
+                  <Plus size={16} /> Buat PO dari {reorderQ.data.length} Item Ini
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }
 
 type ItemRow = { variantId: number; nameText: string; qtyOrdered: number; unitCost: number };
 
-function PurchaseCreateModal({ onClose }: { onClose: (changed: boolean) => void }) {
+function PurchaseCreateModal({ initialItems, onClose }: { initialItems: ItemRow[]; onClose: (changed: boolean) => void }) {
   const suppliersQ = trpc.suppliers.list.useQuery({});
   const create = trpc.purchases.create.useMutation({
     onSuccess: () => { toast("Pembelian dibuat"); onClose(true); },
@@ -59,7 +144,7 @@ function PurchaseCreateModal({ onClose }: { onClose: (changed: boolean) => void 
 
   const [supplierId, setSupplierId] = useState(0);
   const [invoiceNo, setInvoiceNo] = useState(`PO-${Date.now() % 100000}`);
-  const [items, setItems] = useState<ItemRow[]>([]);
+  const [items, setItems] = useState<ItemRow[]>(initialItems ?? []);
   const [pickQ, setPickQ] = useState("");
   const pickQ2 = trpc.inventory.variantsForPick.useQuery({ q: pickQ.length >= 2 ? pickQ : undefined, limit: 8 }, { enabled: true });
   const [err, setErr] = useState<string | null>(null);
@@ -101,7 +186,7 @@ function PurchaseCreateModal({ onClose }: { onClose: (changed: boolean) => void 
                   <button type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-warm-100"
                     onClick={() => {
                       if (items.some(i => i.variantId === v.variantId)) { toast("Sudah ada di daftar", "err"); return; }
-                      setItems(a => [...a, { variantId: v.variantId, nameText: `${v.name} — ${v.label}`, qtyOrdered: 1, unitCost: Math.round(v.sellingPrice * 0.7) }]);
+                      setItems(a => [...a, { variantId: v.variantId, nameText: `${v.name} — ${v.label}`, qtyOrdered: 1, unitCost: v.sellingPrice ? Math.round(v.sellingPrice * 0.7) : 1000 }]);
                       setPickQ("");
                     }}>
                     <span className="font-medium">{v.name}</span> <span className="text-gray-500">{v.label}</span>
@@ -167,11 +252,18 @@ function PurchaseReceiveModal({ id, onClose }: { id: number; onClose: (changed: 
   const allReceived = d.items.every(i => i.qtyReceived >= i.qtyOrdered);
 
   function submit() {
+    const receipts = d.items
+      .map(it => ({ itemId: it.id, receiveQty: Number(qtys[it.id] ?? "0") || 0 }))
+      .filter(r => r.receiveQty > 0);
+
+    if (!receipts.length) {
+      toast("Masukkan kuantitas terima minimal 1 pada salah satu item", "err");
+      return;
+    }
+
     receive.mutate({
       purchaseId: id,
-      receipts: d.items
-        .map(it => ({ itemId: it.id, receiveQty: Number(qtys[it.id] ?? "0") || 0 }))
-        .filter(r => r.receiveQty > 0),
+      receipts,
     });
   }
 

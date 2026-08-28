@@ -17,6 +17,18 @@ export function calcLineTotal(qty: number, unitPrice: number, discount: number):
   return Math.max(0, base - discount);
 }
 
+export function getTieredUnitPrice(
+  basePrice: number,
+  tiers: { minQty: number; unitPrice: number }[],
+  qty: number
+): number {
+  if (!tiers || !tiers.length) return basePrice;
+  const eligible = tiers
+    .filter(t => qty >= t.minQty)
+    .sort((a, b) => b.minQty - a.minQty);
+  return eligible.length ? eligible[0].unitPrice : basePrice;
+}
+
 export function applyTransactionDiscount(
   subtotal: number,
   type: "fixed" | "percentage",
@@ -47,4 +59,68 @@ export function applyVoucher(
 
 export function ensureNonNegative(n: number): number {
   return Math.max(0, n);
+}
+
+export interface ReceiptItemPayload {
+  name: string;
+  qty: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+export interface ReceiptPayload {
+  storeName: string;
+  storeAddress?: string;
+  storePhone?: string;
+  invoiceNo: string;
+  dateStr: string;
+  cashierName: string;
+  items: ReceiptItemPayload[];
+  subtotal: number;
+  discountTotal: number;
+  total: number;
+  paymentMethod: string;
+  paidAmount: number;
+  changeAmount: number;
+}
+
+export function generateWhatsAppReceiptText(p: ReceiptPayload): string {
+  const lineDivider = "------------------------------";
+  const itemLines = p.items.map(i =>
+    `• *${i.name}*\n  ${i.qty} x ${formatRupiah(i.unitPrice)} = *${formatRupiah(i.lineTotal)}*`
+  ).join("\n");
+
+  const lines = [
+    `🧾 *STRUK PEMBELIAN — ${p.storeName.toUpperCase()}*`,
+    p.storeAddress ? `📍 ${p.storeAddress}` : "",
+    p.storePhone ? `📞 Telp: ${p.storePhone}` : "",
+    lineDivider,
+    `No. Nota : *${p.invoiceNo}*`,
+    `Waktu    : ${p.dateStr}`,
+    `Kasir    : ${p.cashierName}`,
+    lineDivider,
+    itemLines,
+    lineDivider,
+    `Subtotal     : ${formatRupiah(p.subtotal)}`,
+    p.discountTotal > 0 ? `Total Diskon : -${formatRupiah(p.discountTotal)}` : "",
+    `*TOTAL AKHIR  : ${formatRupiah(p.total)}*`,
+    `Metode Bayar : ${p.paymentMethod.toUpperCase()}`,
+    `Nominal Bayar: ${formatRupiah(p.paidAmount)}`,
+    p.changeAmount > 0 ? `Kembalian    : ${formatRupiah(p.changeAmount)}` : "",
+    lineDivider,
+    `_Terima kasih telah berbelanja di ${p.storeName}!_`,
+  ].filter(Boolean);
+
+  return lines.join("\n");
+}
+
+export function generateCSV(headers: string[], rows: (string | number | boolean | null | undefined)[][]): string {
+  const escapeCell = (val: string | number | boolean | null | undefined): string => {
+    if (val === null || val === undefined) return '""';
+    const str = String(val).replace(/"/g, '""');
+    return `"${str}"`;
+  };
+  const headerRow = headers.map(escapeCell).join(",");
+  const dataRows = rows.map(row => row.map(escapeCell).join(",")).join("\n");
+  return `\uFEFF${headerRow}\n${dataRows}`;
 }

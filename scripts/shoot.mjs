@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { chromium } from "playwright-core";
 import fs from "node:fs";
 

@@ -1,6 +1,6 @@
 import { router, adminProcedure } from "../trpc/index.js";
 import { db } from "../db.js";
-import { sales, saleItems, productVariants, cashEntries, receivables } from "../../drizzle/schema.js";
+import { sales, saleItems, cashEntries, receivables } from "../../drizzle/schema.js";
 import { sql, and, gte, lte, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -27,10 +27,10 @@ export const reportsRouter = router({
       count: sql<number>`count(*)`,
     }).from(sales).where(where).groupBy(sales.paymentMethod);
     const daily = await db.select({
-      day: sql<string>`DATE_FORMAT(${sales.createdAt}, '%Y-%m-%d')`,
+      day: sql<string>`strftime('%Y-%m-%d', ${sales.createdAt} / 1000, 'unixepoch', 'localtime')`,
       total: sql<number>`COALESCE(SUM(${sales.total}),0)`,
       count: sql<number>`count(*)`,
-    }).from(sales).where(where).groupBy(sql`DATE_FORMAT(${sales.createdAt}, '%Y-%m-%d')`).orderBy(sql`DATE_FORMAT(${sales.createdAt}, '%Y-%m-%d')`);
+    }).from(sales).where(where).groupBy(sql`strftime('%Y-%m-%d', ${sales.createdAt} / 1000, 'unixepoch', 'localtime')`).orderBy(sql`strftime('%Y-%m-%d', ${sales.createdAt} / 1000, 'unixepoch', 'localtime')`);
     return {
       totalSales: Number(row.totalSales),
       trxCount: Number(row.trxCount),
@@ -65,8 +65,6 @@ export const reportsRouter = router({
       lte(sales.createdAt, new Date(`${input.to}T23:59:59`)),
       eq(sales.status, "completed")
     );
-    // Laba memakai snapshot harga modal SAAT transaksi (cost_price_at_sale);
-    // jujur bila data modal belum lengkap (snapshot 0).
     const [rev] = await db.select({
       revenue: sql<number>`COALESCE(SUM(${saleItems.lineTotal}),0)`,
       cogs: sql<number>`COALESCE(SUM(${saleItems.qty} * ${saleItems.costPriceAtSale}),0)`,
@@ -93,7 +91,7 @@ export const reportsRouter = router({
     const [row] = await db.select({
       outstanding: sql<number>`COALESCE(SUM(${receivables.amount} - ${receivables.paidAmount}),0)`,
       openCount: sql<number>`SUM(CASE WHEN ${receivables.status} != 'paid' THEN 1 ELSE 0 END)`,
-      overdueCount: sql<number>`SUM(CASE WHEN ${receivables.status} != 'paid' AND ${receivables.dueDate} < CURDATE() THEN 1 ELSE 0 END)`,
+      overdueCount: sql<number>`SUM(CASE WHEN ${receivables.status} != 'paid' AND ${receivables.dueDate} < date('now', 'localtime') THEN 1 ELSE 0 END)`,
     }).from(receivables);
     return {
       outstanding: Number(row.outstanding),
@@ -102,6 +100,3 @@ export const reportsRouter = router({
     };
   }),
 });
-
-
-

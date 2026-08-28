@@ -46,7 +46,7 @@ export const inventoryRouter = router({
     reason: z.string().min(3).max(200),
   })).mutation(async ({ input, ctx }) => {
     return db.transaction(async (tx) => {
-      const [v] = await tx.select().from(productVariants).where(eq(productVariants.id, input.variantId)).for("update");
+      const [v] = await tx.select().from(productVariants).where(eq(productVariants.id, input.variantId));
       if (!v) throw new Error("Varian tidak ditemukan");
       if (v.stock + input.deltaQty < 0) throw new Error("Hasil penyesuaian tidak boleh negatif");
       await tx.update(productVariants).set({ stock: sql`${productVariants.stock} + ${input.deltaQty}` }).where(eq(productVariants.id, v.id));
@@ -90,7 +90,7 @@ export const inventoryRouter = router({
       responsibleName: input.responsibleName,
       responsibleUserId: ctx.user.id,
       note: input.note ?? null,
-    }).$returningId();
+    }).returning({ id: stockOpnames.id });
     return { id: Number(o.id), code };
   }),
 
@@ -144,17 +144,15 @@ export const inventoryRouter = router({
     opnameId: z.number().int().positive(),
   })).mutation(async ({ input, ctx }) => {
     return db.transaction(async (tx) => {
-      const [o] = await tx.select().from(stockOpnames).where(eq(stockOpnames.id, input.opnameId)).for("update");
+      const [o] = await tx.select().from(stockOpnames).where(eq(stockOpnames.id, input.opnameId));
       if (!o) throw new Error("Sesi opname tidak ditemukan");
       if (o.status !== "open") throw new Error("Sesi sudah difinalisasi");
       const items = await tx.select().from(stockOpnameItems).where(eq(stockOpnameItems.opnameId, o.id));
       if (!items.length) throw new Error("Tidak ada item untuk difinalisasi");
       for (const it of items) {
         if (it.diff === 0) continue;
-        const [v] = await tx.select().from(productVariants).where(eq(productVariants.id, it.variantId)).for("update");
+        const [v] = await tx.select().from(productVariants).where(eq(productVariants.id, it.variantId));
         if (!v) continue;
-        // Terapkan selisih ke stok TERKINI (bukan timpa dengan physicalStock):
-        // penjualan/pembelian yang terjadi setelah item dicatat tetap terhitung.
         await tx.update(productVariants).set({ stock: v.stock + it.diff }).where(eq(productVariants.id, v.id));
         await tx.update(products).set({ stock: sql`${products.stock} + ${it.diff}` }).where(eq(products.id, v.productId));
         await tx.insert(inventoryMovements).values({
@@ -201,6 +199,3 @@ export const inventoryRouter = router({
       .orderBy(products.name).limit(input.limit);
   }),
 });
-
-
-

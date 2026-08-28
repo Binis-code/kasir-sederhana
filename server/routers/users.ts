@@ -48,7 +48,7 @@ export const usersRouter = router({
     const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, input.username)).limit(1);
     if (existing.length) throw new Error("Username sudah dipakai");
     const passwordHash = await hashPassword(input.password);
-    const [u] = await db.insert(users).values({ ...input, passwordHash }).$returningId();
+    const [u] = await db.insert(users).values({ ...input, passwordHash }).returning({ id: users.id });
     return { id: u.id };
   }),
 

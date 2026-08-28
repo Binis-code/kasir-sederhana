@@ -12,7 +12,7 @@ export const receivablesRouter = router({
   })).query(async ({ input }) => {
     const where = [];
     if (input.status) where.push(eq(receivables.status, input.status));
-    if (input.overdueOnly) where.push(and(ne(receivables.status, "paid"), lte(receivables.dueDate, sql`CURDATE()`)));
+    if (input.overdueOnly) where.push(and(ne(receivables.status, "paid"), lte(receivables.dueDate, sql`date('now')`)));
     const items = await db.select({
       id: receivables.id,
       customerName: receivables.customerName,
@@ -61,7 +61,7 @@ export const receivablesRouter = router({
     note: z.string().max(300).optional().nullable(),
   })).mutation(async ({ input, ctx }) => {
     return db.transaction(async (tx) => {
-      const [r] = await tx.select().from(receivables).where(eq(receivables.id, input.id)).for("update");
+      const [r] = await tx.select().from(receivables).where(eq(receivables.id, input.id));
       if (!r) throw new Error("Piutang tidak ditemukan");
       if (r.status === "paid") throw new Error("Piutang sudah lunas");
       const remaining = r.amount - r.paidAmount;
@@ -79,6 +79,3 @@ export const receivablesRouter = router({
     });
   }),
 });
-
-
-

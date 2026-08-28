@@ -12,6 +12,8 @@ import { reportsRouter } from "./reports.js";
 import { dashboardRouter } from "./dashboard.js";
 import { notificationsRouter } from "./notifications.js";
 import { discountsRouter } from "./discounts.js";
+import { shiftsRouter } from "./shifts.js";
+import { backupRouter } from "./backup.js";
 
 export const appRouter = router({
   auth: authRouter,
@@ -27,8 +29,8 @@ export const appRouter = router({
   dashboard: dashboardRouter,
   notifications: notificationsRouter,
   discounts: discountsRouter,
+  shifts: shiftsRouter,
+  backup: backupRouter,
 });
 
 export type AppRouter = typeof appRouter;
-
-

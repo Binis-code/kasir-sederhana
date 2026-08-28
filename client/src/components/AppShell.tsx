@@ -28,6 +28,7 @@ const NAV = [
   { group: "Keuangan", items: [
     { href: "/receivables", label: "Piutang", icon: HandCoins },
     { href: "/finance", label: "Kas Masuk/Keluar", icon: Wallet },
+    { href: "/shifts", label: "Shift & Laci Kas", icon: Wallet },
     { href: "/reports", label: "Laporan", icon: BarChart3 },
   ]},
 ];

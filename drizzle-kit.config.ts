@@ -2,10 +2,12 @@ import "dotenv/config";
 import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
-  dialect: "mysql",
+  dialect: "sqlite",
   schema: "./drizzle/schema.ts",
   out: "./drizzle/migrations",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "mysql://root:root123@localhost:3306/kios_nusa",
+    url: process.env.DATABASE_URL?.startsWith("file:")
+      ? process.env.DATABASE_URL
+      : "file:kios_nusa.db",
   },
 });

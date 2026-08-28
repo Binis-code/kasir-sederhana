@@ -6,6 +6,9 @@ import {
   applyTransactionDiscount,
   applyVoucher,
   ensureNonNegative,
+  getTieredUnitPrice,
+  generateWhatsAppReceiptText,
+  generateCSV,
 } from "../shared/money.js";
 
 describe("formatRupiah", () => {
@@ -28,6 +31,22 @@ describe("calcLineTotal", () => {
   });
   it("tidak pernah negatif", () => {
     expect(calcLineTotal(1, 5000, 99999)).toBe(0);
+  });
+});
+
+describe("getTieredUnitPrice", () => {
+  const tiers = [
+    { minQty: 5, unitPrice: 4500 },
+    { minQty: 10, unitPrice: 4000 },
+  ];
+  it("mengembalikan base price bila di bawah tier pertama", () => {
+    expect(getTieredUnitPrice(5000, tiers, 3)).toBe(5000);
+  });
+  it("mengembalikan harga tier 5 pcs", () => {
+    expect(getTieredUnitPrice(5000, tiers, 6)).toBe(4500);
+  });
+  it("mengembalikan harga tier tertinggi saat qty >= 10", () => {
+    expect(getTieredUnitPrice(5000, tiers, 12)).toBe(4000);
   });
 });
 
@@ -62,6 +81,42 @@ describe("applyVoucher", () => {
   it("diskon voucher tidak melebihi subtotal", () => {
     const r = applyVoucher(4000, "fixed", 5000, 0);
     expect(r.discount).toBe(4000);
+  });
+});
+
+describe("generateWhatsAppReceiptText", () => {
+  it("menghasilkan teks nota WA berformat rapi", () => {
+    const text = generateWhatsAppReceiptText({
+      storeName: "Kios Nusa",
+      invoiceNo: "INV-20260828-0001",
+      dateStr: "28/08/2026, 18.00",
+      cashierName: "Budi",
+      items: [{ name: "Beras", qty: 2, unitPrice: 70000, lineTotal: 140000 }],
+      subtotal: 140000,
+      discountTotal: 0,
+      total: 140000,
+      paymentMethod: "cash",
+      paidAmount: 150000,
+      changeAmount: 10000,
+    });
+    expect(text).toContain("STRUK PEMBELIAN — KIOS NUSA");
+    expect(text).toContain("INV-20260828-0001");
+    expect(text).toContain("Beras");
+    expect(text).toContain("TOTAL AKHIR");
+  });
+});
+
+describe("generateCSV", () => {
+  it("menghasilkan string CSV ber-BOM UTF-8 dengan escape kutip", () => {
+    const headers = ["Produk", "Harga"];
+    const rows = [
+      ['Beras "Pandan"', 72000],
+      ["Aqua, Botol", 4000],
+    ];
+    const csv = generateCSV(headers, rows);
+    expect(csv.startsWith("\uFEFF")).toBe(true);
+    expect(csv).toContain('"Beras ""Pandan"""');
+    expect(csv).toContain('"Aqua, Botol"');
   });
 });
 

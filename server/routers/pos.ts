@@ -1,16 +1,28 @@
 import { router, protectedProcedure } from "../trpc/index.js";
 import { db } from "../db.js";
-import { sales, saleItems, salePayments, productVariants, products, receivables, inventoryMovements, vouchers, searchFrequency } from "../../drizzle/schema.js";
-import { eq, sql, and, desc, gte, lte } from "drizzle-orm";
+import {
+  sales,
+  saleItems,
+  salePayments,
+  productVariants,
+  products,
+  receivables,
+  inventoryMovements,
+  vouchers,
+  searchFrequency,
+  invoiceCounters,
+  heldCarts,
+  priceTiers,
+} from "../../drizzle/schema.js";
+import { eq, sql, and, desc, gte, lte, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { calcLineTotal, applyTransactionDiscount, applyVoucher } from "../../shared/money.js";
+import { calcLineTotal, applyTransactionDiscount, applyVoucher, getTieredUnitPrice } from "../../shared/money.js";
 
 const checkoutSchema = z.object({
   items: z.array(z.object({
     variantId: z.number().int().positive(),
     qty: z.number().int().min(1),
     discount: z.number().int().min(0).default(0),
-    // Harga satuan manual (override) — hanya owner/admin, diverifikasi ulang server.
     unitPrice: z.number().int().min(0).optional(),
   })).min(1, "Keranjang kosong"),
   trxDiscountType: z.enum(["fixed", "percentage"]).optional().nullable(),
@@ -21,6 +33,7 @@ const checkoutSchema = z.object({
   referenceNo: z.string().max(64).optional().nullable(),
   customerName: z.string().max(128).optional().nullable(),
   dueDate: z.string().optional().nullable(),
+  heldCartId: z.number().int().positive().optional().nullable(),
 });
 
 function todayStr() {
@@ -37,7 +50,6 @@ function dateStr(d: Date) {
 export const posRouter = router({
   checkout: protectedProcedure.input(checkoutSchema).mutation(async ({ input, ctx }) => {
     return db.transaction(async (tx) => {
-      // Lock variants for update
       const variantIds = input.items.map(i => i.variantId);
       const variants = await tx.select({
         id: productVariants.id,
@@ -51,12 +63,19 @@ export const posRouter = router({
         productActive: products.isActive,
       }).from(productVariants)
         .innerJoin(products, eq(products.id, productVariants.productId))
-        .where(sql`${productVariants.id} IN ${variantIds}`)
-        .for("update");
+        .where(sql`${productVariants.id} IN ${variantIds}`);
 
       const vMap = new Map(variants.map(v => [v.id, v]));
 
-      // Validate items & compute line totals SERVER-SIDE (never trust client totals)
+      // Query any quantity price tiers for these variants
+      const tiers = await tx.select().from(priceTiers).where(inArray(priceTiers.variantId, variantIds));
+      const tiersMap = new Map<number, { minQty: number; unitPrice: number }[]>();
+      for (const t of tiers) {
+        const list = tiersMap.get(t.variantId) ?? [];
+        list.push({ minQty: t.minQty, unitPrice: t.unitPrice });
+        tiersMap.set(t.variantId, list);
+      }
+
       let subtotal = 0;
       let itemDiscountTotal = 0;
       const lines = input.items.map(it => {
@@ -65,9 +84,14 @@ export const posRouter = router({
         if (!v.isActive || !v.productActive) throw new Error(`${v.productName} tidak aktif`);
         if (it.qty <= 0) throw new Error(`Kuantitas harus > 0 untuk ${v.productName}`);
         if (v.stock < it.qty) throw new Error(`Stok tidak cukup: ${v.productName} (${v.label}) sisa ${v.stock}`);
-        const unitPrice = it.unitPrice ?? v.sellingPrice;
-        if (unitPrice !== v.sellingPrice && ctx.user.role === "kasir") {
-          throw new Error(`Ubah harga hanya boleh oleh owner/admin: ${v.productName}`);
+
+        // Evaluate tiered pricing if applicable
+        const variantTiers = tiersMap.get(v.id) ?? [];
+        const baseCalculatedPrice = getTieredUnitPrice(v.sellingPrice, variantTiers, it.qty);
+
+        const unitPrice = it.unitPrice ?? baseCalculatedPrice;
+        if (unitPrice !== baseCalculatedPrice && ctx.user.role === "kasir") {
+          throw new Error(`Ubah harga manual hanya boleh oleh owner/admin: ${v.productName}`);
         }
         if (it.discount > it.qty * unitPrice) throw new Error(`Diskon melebihi harga untuk ${v.productName}`);
         const lineTotal = calcLineTotal(it.qty, unitPrice, it.discount);
@@ -76,19 +100,17 @@ export const posRouter = router({
         return { variant: v, ...it, unitPrice, lineTotal };
       });
 
-      // Transaction-level discount
       let trxDiscount = 0;
       if (input.trxDiscountType && input.trxDiscountValue > 0) {
         trxDiscount = applyTransactionDiscount(subtotal - itemDiscountTotal, input.trxDiscountType, input.trxDiscountValue);
       }
       const afterTrxDisc = Math.max(0, subtotal - itemDiscountTotal - trxDiscount);
 
-      // Voucher validation
       let voucherDiscount = 0;
       let voucherCodeUsed: string | null = null;
       if (input.voucherCode) {
         const code = input.voucherCode.trim().toUpperCase();
-        const [v] = await tx.select().from(vouchers).where(eq(vouchers.code, code)).for("update");
+        const [v] = await tx.select().from(vouchers).where(eq(vouchers.code, code));
         const today = dateStr(new Date());
         if (!v || !v.isActive) throw new Error("Voucher tidak valid");
         if (v.validFrom > today) throw new Error("Voucher belum berlaku");
@@ -108,15 +130,17 @@ export const posRouter = router({
         throw new Error("Nominal bayar kurang dari total (hanya kredit boleh kurang)");
       }
 
-      // Invoice number: INV-YYYYMMDD-NNNN — atomik via tabel counter +
-      // LAST_INSERT_ID trick (aman dari race antar transaksi bersamaan).
+      // Invoice number: INV-YYYYMMDD-NNNN — atomik via invoice_counters
       const day = todayStr();
-      await tx.execute(sql`INSERT INTO invoice_counters (day, last_no) VALUES (${day}, LAST_INSERT_ID(1)) ON DUPLICATE KEY UPDATE last_no = LAST_INSERT_ID(last_no + 1)`);
-      const seqRes = await tx.execute(sql`SELECT LAST_INSERT_ID() AS seq`);
-      // mysql2 mengembalikan [rows, fields] saat prepared execute — ambil baris pertama
-      const firstRow = (Array.isArray(seqRes) ? seqRes[0] : (seqRes as { rows: unknown[] }).rows) as unknown;
-      const seqVal = (Array.isArray(firstRow) ? firstRow[0] : firstRow) as { seq?: number | string } | undefined;
-      const invoiceNo = `INV-${day}-${String(Number(seqVal?.seq ?? 0)).padStart(4, "0")}`;
+      const [counter] = await tx.select().from(invoiceCounters).where(eq(invoiceCounters.day, day));
+      let nextNo = 1;
+      if (counter) {
+        nextNo = counter.lastNo + 1;
+        await tx.update(invoiceCounters).set({ lastNo: nextNo }).where(eq(invoiceCounters.day, day));
+      } else {
+        await tx.insert(invoiceCounters).values({ day, lastNo: nextNo });
+      }
+      const invoiceNo = `INV-${day}-${String(nextNo).padStart(4, "0")}`;
 
       const changeAmount = Math.max(0, input.paidAmount - total);
       const unpaid = total - Math.min(input.paidAmount, total);
@@ -140,7 +164,7 @@ export const posRouter = router({
         status: "completed",
         customerName: input.customerName ?? null,
         dueDate: unpaid > 0 ? input.dueDate : null,
-      }).$returningId();
+      }).returning({ id: sales.id });
 
       for (const line of lines) {
         await tx.insert(saleItems).values({
@@ -186,8 +210,40 @@ export const posRouter = router({
         });
       }
 
+      // If this checkout restores and completes a held cart, remove the held cart
+      if (input.heldCartId) {
+        await tx.delete(heldCarts).where(eq(heldCarts.id, input.heldCartId));
+      }
+
       return { saleId: sale.id, invoiceNo, total, changeAmount, unpaid };
     });
+  }),
+
+  // ---- Hold / Parked Cart Feature ----
+  holdCart: protectedProcedure.input(z.object({
+    label: z.string().min(1).max(100),
+    cartJson: z.string().min(2),
+    subtotal: z.number().int().min(0),
+  })).mutation(async ({ input, ctx }) => {
+    const [held] = await db.insert(heldCarts).values({
+      cashierId: ctx.user.id,
+      label: input.label,
+      cartJson: input.cartJson,
+      subtotal: input.subtotal,
+    }).returning({ id: heldCarts.id });
+    return { id: held.id };
+  }),
+
+  listHeldCarts: protectedProcedure.query(async ({ ctx }) => {
+    return db.select()
+      .from(heldCarts)
+      .where(eq(heldCarts.cashierId, ctx.user.id))
+      .orderBy(desc(heldCarts.createdAt));
+  }),
+
+  deleteHeldCart: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+    await db.delete(heldCarts).where(eq(heldCarts.id, input.id));
+    return { ok: true };
   }),
 
   getSale: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
@@ -253,13 +309,11 @@ export const posRouter = router({
     return v ?? null;
   }),
 
-  // Catat frekuensi PEMILIHAN hasil pencarian/scan (bukan saat checkout) —
-  // sesuai spec: "Sering dicari" = produk yang sering dipilih pengguna.
   recordPick: protectedProcedure.input(z.object({ variantId: z.number().int().positive() })).mutation(async ({ input }) => {
     const [v] = await db.select({ productId: productVariants.productId }).from(productVariants).where(eq(productVariants.id, input.variantId)).limit(1);
     if (!v) return { ok: false };
     await db.insert(searchFrequency).values({ skuKey: `${v.productId}:${input.variantId}`, count: 1 })
-      .onDuplicateKeyUpdate({ set: { count: sql`${searchFrequency.count} + 1` } });
+      .onConflictDoUpdate({ target: searchFrequency.skuKey, set: { count: sql`${searchFrequency.count} + 1` } });
     return { ok: true };
   }),
 
@@ -287,6 +341,3 @@ export const posRouter = router({
       .sort((a, b) => b.count - a.count);
   }),
 });
-
-
-

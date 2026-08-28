@@ -34,7 +34,7 @@ export const suppliersRouter = router({
   }),
 
   create: adminProcedure.input(supplierSchema).mutation(async ({ input }) => {
-    const [s] = await db.insert(suppliers).values(input).$returningId();
+    const [s] = await db.insert(suppliers).values(input).returning({ id: suppliers.id });
     return { id: s.id };
   }),
 

@@ -1,6 +1,6 @@
 import { router, adminProcedure, protectedProcedure } from "../trpc/index.js";
 import { db } from "../db.js";
-import { cashEntries } from "../../drizzle/schema.js";
+import { cashEntries, users } from "../../drizzle/schema.js";
 import { eq, sql, and, desc, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 
@@ -37,7 +37,7 @@ export const financeRouter = router({
   }),
 
   createEntry: adminProcedure.input(entrySchema).mutation(async ({ input, ctx }) => {
-    const [e] = await db.insert(cashEntries).values({ ...input, createdBy: ctx.user.id }).$returningId();
+    const [e] = await db.insert(cashEntries).values({ ...input, createdBy: ctx.user.id }).returning({ id: cashEntries.id });
     return { id: e.id };
   }),
 
@@ -46,6 +46,3 @@ export const financeRouter = router({
     return { ok: true };
   }),
 });
-
-
-

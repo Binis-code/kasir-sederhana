@@ -1,94 +1,96 @@
 import {
-  mysqlTable,
-  int,
-  varchar,
+  sqliteTable,
+  integer,
   text,
-  timestamp,
-  boolean,
-  decimal,
-  date,
   uniqueIndex,
   index,
-  primaryKey,
-  serial,
-} from "drizzle-orm/mysql-core";
-import { relations } from "drizzle-orm";
+} from "drizzle-orm/sqlite-core";
+import { relations, sql } from "drizzle-orm";
 
-export const users = mysqlTable("users", {
-  id: int("id").primaryKey().autoincrement(),
-  openId: varchar("open_id", { length: 128 }).unique(),
-  username: varchar("username", { length: 64 }).notNull().unique(),
-  name: varchar("name", { length: 128 }).notNull(),
-  email: varchar("email", { length: 128 }),
-  passwordHash: varchar("password_hash", { length: 256 }).notNull(),
-  role: varchar("role", { length: 16 }).notNull().default("kasir"),
-  loginMethod: varchar("login_method", { length: 32 }).notNull().default("password"),
-  lastLoginAt: timestamp("last_login_at"),
-  // Naikkan untuk mencabut SEMUA token aktif user (logout paksa / ganti password)
-  tokenVersion: int("token_version").notNull().default(0),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+export const users = sqliteTable("users", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  openId: text("open_id").unique(),
+  username: text("username").notNull().unique(),
+  name: text("name").notNull(),
+  email: text("email"),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default("kasir"),
+  loginMethod: text("login_method").notNull().default("password"),
+  lastLoginAt: integer("last_login_at", { mode: "timestamp_ms" }),
+  tokenVersion: integer("token_version").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (t) => ({
   roleIdx: index("users_role_idx").on(t.role),
 }));
 
-export const suppliers = mysqlTable("suppliers", {
-  id: int("id").primaryKey().autoincrement(),
-  name: varchar("name", { length: 128 }).notNull(),
-  phone: varchar("phone", { length: 32 }),
+export const suppliers = sqliteTable("suppliers", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  phone: text("phone"),
   address: text("address"),
   notes: text("notes"),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 });
 
-export const products = mysqlTable("products", {
-  id: int("id").primaryKey().autoincrement(),
-  name: varchar("name", { length: 128 }).notNull(),
-  category: varchar("category", { length: 64 }).notNull(),
-  barcode: varchar("barcode", { length: 64 }),
-  stock: int("stock").notNull().default(0),
-  minStock: int("min_stock").notNull().default(0),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+export const products = sqliteTable("products", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  barcode: text("barcode"),
+  stock: integer("stock").notNull().default(0),
+  minStock: integer("min_stock").notNull().default(0),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (t) => ({
   barcodeIdx: uniqueIndex("products_barcode_idx").on(t.barcode),
   categoryIdx: index("products_category_idx").on(t.category),
   lowStockIdx: index("products_low_stock_idx").on(t.stock, t.minStock, t.isActive),
 }));
 
-export const productVariants = mysqlTable("product_variants", {
-  id: int("id").primaryKey().autoincrement(),
-  productId: int("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
-  label: varchar("label", { length: 64 }).notNull(),
-  barcode: varchar("barcode", { length: 64 }),
-  sellingPrice: int("selling_price").notNull().default(0),
-  costPrice: int("cost_price").notNull().default(0),
-  stock: int("stock").notNull().default(0),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+export const productVariants = sqliteTable("product_variants", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  productId: integer("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  barcode: text("barcode"),
+  sellingPrice: integer("selling_price").notNull().default(0),
+  costPrice: integer("cost_price").notNull().default(0),
+  stock: integer("stock").notNull().default(0),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (t) => ({
   barcodeIdx: uniqueIndex("variants_barcode_idx").on(t.barcode),
   productIdx: index("variants_product_idx").on(t.productId),
   stockIdx: index("variants_stock_idx").on(t.stock, t.isActive),
 }));
 
-export const purchases = mysqlTable("purchases", {
-  id: int("id").primaryKey().autoincrement(),
-  supplierId: int("supplier_id").notNull().references(() => suppliers.id),
-  invoiceNo: varchar("invoice_no", { length: 64 }).notNull().unique(),
-  status: varchar("status", { length: 16 }).notNull().default("draft"),
-  totalCost: int("total_cost").notNull().default(0),
+export const priceTiers = sqliteTable("price_tiers", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  variantId: integer("variant_id").notNull().references(() => productVariants.id, { onDelete: "cascade" }),
+  minQty: integer("min_qty").notNull(),
+  unitPrice: integer("unit_price").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+}, (t) => ({
+  variantQtyIdx: uniqueIndex("price_tiers_var_qty_idx").on(t.variantId, t.minQty),
+}));
+
+export const purchases = sqliteTable("purchases", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  supplierId: integer("supplier_id").notNull().references(() => suppliers.id),
+  invoiceNo: text("invoice_no").notNull().unique(),
+  status: text("status").notNull().default("draft"),
+  totalCost: integer("total_cost").notNull().default(0),
   notes: text("notes"),
-  expectedAt: date("expected_at", { mode: "string" }),
-  createdBy: int("created_by").notNull().references(() => users.id),
-  receivedBy: int("received_by").references(() => users.id),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  receivedAt: timestamp("received_at"),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+  expectedAt: text("expected_at"),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  receivedBy: integer("received_by").references(() => users.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  receivedAt: integer("received_at", { mode: "timestamp_ms" }),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (t) => ({
   supplierIdx: index("purchases_supplier_idx").on(t.supplierId),
   statusIdx: index("purchases_status_idx").on(t.status),
@@ -96,35 +98,35 @@ export const purchases = mysqlTable("purchases", {
   dateIdx: index("purchases_date_idx").on(t.createdAt),
 }));
 
-export const purchaseItems = mysqlTable("purchase_items", {
-  id: int("id").primaryKey().autoincrement(),
-  purchaseId: int("purchase_id").notNull().references(() => purchases.id, { onDelete: "cascade" }),
-  variantId: int("variant_id").notNull().references(() => productVariants.id),
-  qtyOrdered: int("qty_ordered").notNull(),
-  qtyReceived: int("qty_received").notNull().default(0),
-  unitCost: int("unit_cost").notNull(),
+export const purchaseItems = sqliteTable("purchase_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  purchaseId: integer("purchase_id").notNull().references(() => purchases.id, { onDelete: "cascade" }),
+  variantId: integer("variant_id").notNull().references(() => productVariants.id),
+  qtyOrdered: integer("qty_ordered").notNull(),
+  qtyReceived: integer("qty_received").notNull().default(0),
+  unitCost: integer("unit_cost").notNull(),
 }, (t) => ({
   purchaseIdx: index("purchase_items_purchase_idx").on(t.purchaseId),
   variantIdx: index("purchase_items_variant_idx").on(t.variantId),
 }));
 
-export const sales = mysqlTable("sales", {
-  id: int("id").primaryKey().autoincrement(),
-  invoiceNo: varchar("invoice_no", { length: 64 }).notNull().unique(),
-  cashierId: int("cashier_id").notNull().references(() => users.id),
-  subtotal: int("subtotal").notNull(),
-  discountTotal: int("discount_total").notNull().default(0),
-  voucherCode: varchar("voucher_code", { length: 64 }),
-  voucherDiscount: int("voucher_discount").notNull().default(0),
-  total: int("total").notNull(),
-  paymentMethod: varchar("payment_method", { length: 16 }).notNull(),
-  paidAmount: int("paid_amount").notNull(),
-  changeAmount: int("change_amount").notNull().default(0),
-  status: varchar("status", { length: 16 }).notNull().default("completed"),
-  customerName: varchar("customer_name", { length: 128 }),
-  dueDate: date("due_date", { mode: "string" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+export const sales = sqliteTable("sales", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  invoiceNo: text("invoice_no").notNull().unique(),
+  cashierId: integer("cashier_id").notNull().references(() => users.id),
+  subtotal: integer("subtotal").notNull(),
+  discountTotal: integer("discount_total").notNull().default(0),
+  voucherCode: text("voucher_code"),
+  voucherDiscount: integer("voucher_discount").notNull().default(0),
+  total: integer("total").notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  paidAmount: integer("paid_amount").notNull(),
+  changeAmount: integer("change_amount").notNull().default(0),
+  status: text("status").notNull().default("completed"),
+  customerName: text("customer_name"),
+  dueDate: text("due_date"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (t) => ({
   cashierIdx: index("sales_cashier_idx").on(t.cashierId),
   dateIdx: index("sales_date_idx").on(t.createdAt),
@@ -133,72 +135,71 @@ export const sales = mysqlTable("sales", {
   dueDateIdx: index("sales_due_date_idx").on(t.dueDate),
 }));
 
-export const saleItems = mysqlTable("sale_items", {
-  id: int("id").primaryKey().autoincrement(),
-  saleId: int("sale_id").notNull().references(() => sales.id, { onDelete: "cascade" }),
-  productId: int("product_id").notNull().references(() => products.id),
-  variantId: int("variant_id").notNull().references(() => productVariants.id),
-  name: varchar("name", { length: 128 }).notNull(),
-  qty: int("qty").notNull(),
-  unitPrice: int("unit_price").notNull(),
-  // Snapshot harga modal saat transaksi agar laporan laba historis akurat
-  costPriceAtSale: int("cost_price_at_sale").notNull().default(0),
-  discount: int("discount").notNull().default(0),
-  lineTotal: int("line_total").notNull(),
+export const saleItems = sqliteTable("sale_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  saleId: integer("sale_id").notNull().references(() => sales.id, { onDelete: "cascade" }),
+  productId: integer("product_id").notNull().references(() => products.id),
+  variantId: integer("variant_id").notNull().references(() => productVariants.id),
+  name: text("name").notNull(),
+  qty: integer("qty").notNull(),
+  unitPrice: integer("unit_price").notNull(),
+  costPriceAtSale: integer("cost_price_at_sale").notNull().default(0),
+  discount: integer("discount").notNull().default(0),
+  lineTotal: integer("line_total").notNull(),
 }, (t) => ({
   saleIdx: index("sale_items_sale_idx").on(t.saleId),
   productIdx: index("sale_items_product_idx").on(t.productId),
   variantIdx: index("sale_items_variant_idx").on(t.variantId),
 }));
 
-export const salePayments = mysqlTable("sale_payments", {
-  id: int("id").primaryKey().autoincrement(),
-  saleId: int("sale_id").notNull().references(() => sales.id, { onDelete: "cascade" }),
-  method: varchar("method", { length: 16 }).notNull(),
-  amount: int("amount").notNull(),
-  referenceNo: varchar("reference_no", { length: 64 }),
+export const salePayments = sqliteTable("sale_payments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  saleId: integer("sale_id").notNull().references(() => sales.id, { onDelete: "cascade" }),
+  method: text("method").notNull(),
+  amount: integer("amount").notNull(),
+  referenceNo: text("reference_no"),
 }, (t) => ({
   saleIdx: index("sale_payments_sale_idx").on(t.saleId),
 }));
 
-export const receivables = mysqlTable("receivables", {
-  id: int("id").primaryKey().autoincrement(),
-  saleId: int("sale_id").notNull().unique().references(() => sales.id, { onDelete: "cascade" }),
-  customerName: varchar("customer_name", { length: 128 }).notNull(),
-  amount: int("amount").notNull(),
-  paidAmount: int("paid_amount").notNull().default(0),
-  dueDate: date("due_date", { mode: "string" }).notNull(),
-  status: varchar("status", { length: 16 }).notNull().default("open"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+export const receivables = sqliteTable("receivables", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  saleId: integer("sale_id").notNull().unique().references(() => sales.id, { onDelete: "cascade" }),
+  customerName: text("customer_name").notNull(),
+  amount: integer("amount").notNull(),
+  paidAmount: integer("paid_amount").notNull().default(0),
+  dueDate: text("due_date").notNull(),
+  status: text("status").notNull().default("open"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (t) => ({
   statusIdx: index("receivables_status_idx").on(t.status),
   dueDateIdx: index("receivables_due_idx").on(t.dueDate, t.status),
   customerIdx: index("receivables_customer_idx").on(t.customerName),
 }));
 
-export const receivablePayments = mysqlTable("receivable_payments", {
-  id: int("id").primaryKey().autoincrement(),
-  receivableId: int("receivable_id").notNull().references(() => receivables.id, { onDelete: "cascade" }),
-  amount: int("amount").notNull(),
+export const receivablePayments = sqliteTable("receivable_payments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  receivableId: integer("receivable_id").notNull().references(() => receivables.id, { onDelete: "cascade" }),
+  amount: integer("amount").notNull(),
   note: text("note"),
-  createdBy: int("created_by").notNull().references(() => users.id),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (t) => ({
   receivableIdx: index("receivable_payments_receivable_idx").on(t.receivableId),
 }));
 
-export const inventoryMovements = mysqlTable("inventory_movements", {
-  id: int("id").primaryKey().autoincrement(),
-  productId: int("product_id").notNull().references(() => products.id),
-  variantId: int("variant_id").references(() => productVariants.id),
-  type: varchar("type", { length: 16 }).notNull(),
-  qty: int("qty").notNull(),
-  refType: varchar("ref_type", { length: 32 }),
-  refId: int("ref_id"),
+export const inventoryMovements = sqliteTable("inventory_movements", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  productId: integer("product_id").notNull().references(() => products.id),
+  variantId: integer("variant_id").references(() => productVariants.id),
+  type: text("type").notNull(),
+  qty: integer("qty").notNull(),
+  refType: text("ref_type"),
+  refId: integer("ref_id"),
   note: text("note"),
-  createdBy: int("created_by").notNull().references(() => users.id),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (t) => ({
   productIdx: index("movements_product_idx").on(t.productId),
   variantIdx: index("movements_variant_idx").on(t.variantId),
@@ -207,95 +208,121 @@ export const inventoryMovements = mysqlTable("inventory_movements", {
   dateIdx: index("movements_date_idx").on(t.createdAt),
 }));
 
-export const stockOpnames = mysqlTable("stock_opnames", {
-  id: int("id").primaryKey().autoincrement(),
-  code: varchar("code", { length: 64 }).notNull().unique(),
-  status: varchar("status", { length: 16 }).notNull().default("open"),
-  responsibleName: varchar("responsible_name", { length: 128 }).notNull(),
-  responsibleUserId: int("responsible_user_id").references(() => users.id),
+export const stockOpnames = sqliteTable("stock_opnames", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  code: text("code").notNull().unique(),
+  status: text("status").notNull().default("open"),
+  responsibleName: text("responsible_name").notNull(),
+  responsibleUserId: integer("responsible_user_id").references(() => users.id),
   note: text("note"),
-  finalizedAt: timestamp("finalized_at"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+  finalizedAt: integer("finalized_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (t) => ({
   statusIdx: index("opnames_status_idx").on(t.status),
   dateIdx: index("opnames_date_idx").on(t.createdAt),
 }));
 
-export const stockOpnameItems = mysqlTable("stock_opname_items", {
-  id: int("id").primaryKey().autoincrement(),
-  opnameId: int("opname_id").notNull().references(() => stockOpnames.id, { onDelete: "cascade" }),
-  variantId: int("variant_id").notNull().references(() => productVariants.id),
-  systemStock: int("system_stock").notNull(),
-  physicalStock: int("physical_stock").notNull(),
-  diff: int("diff").notNull(),
-  reason: varchar("reason", { length: 128 }),
+export const stockOpnameItems = sqliteTable("stock_opname_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  opnameId: integer("opname_id").notNull().references(() => stockOpnames.id, { onDelete: "cascade" }),
+  variantId: integer("variant_id").notNull().references(() => productVariants.id),
+  systemStock: integer("system_stock").notNull(),
+  physicalStock: integer("physical_stock").notNull(),
+  diff: integer("diff").notNull(),
+  reason: text("reason"),
 }, (t) => ({
   opnameIdx: index("opname_items_opname_idx").on(t.opnameId),
   variantIdx: index("opname_items_variant_idx").on(t.variantId),
 }));
 
-export const cashEntries = mysqlTable("cash_entries", {
-  id: int("id").primaryKey().autoincrement(),
-  type: varchar("type", { length: 16 }).notNull(),
-  category: varchar("category", { length: 64 }).notNull(),
-  description: varchar("description", { length: 256 }).notNull(),
-  amount: int("amount").notNull(),
-  entryDate: date("entry_date", { mode: "string" }).notNull(),
-  createdBy: int("created_by").notNull().references(() => users.id),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+export const cashEntries = sqliteTable("cash_entries", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  type: text("type").notNull(),
+  category: text("category").notNull(),
+  description: text("description").notNull(),
+  amount: integer("amount").notNull(),
+  entryDate: text("entry_date").notNull(),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (t) => ({
   typeIdx: index("cash_type_idx").on(t.type),
   dateIdx: index("cash_date_idx").on(t.entryDate),
   categoryIdx: index("cash_category_idx").on(t.category),
 }));
 
-export const discountRules = mysqlTable("discount_rules", {
-  id: int("id").primaryKey().autoincrement(),
-  name: varchar("name", { length: 64 }).notNull(),
-  type: varchar("type", { length: 16 }).notNull(),
-  value: int("value").notNull(),
-  minPurchase: int("min_purchase").notNull().default(0),
-  isActive: boolean("is_active").notNull().default(true),
-  startsAt: date("starts_at", { mode: "string" }),
-  endsAt: date("ends_at", { mode: "string" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+export const discountRules = sqliteTable("discount_rules", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  value: integer("value").notNull(),
+  minPurchase: integer("min_purchase").notNull().default(0),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  startsAt: text("starts_at"),
+  endsAt: text("ends_at"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 });
 
-export const vouchers = mysqlTable("vouchers", {
-  id: int("id").primaryKey().autoincrement(),
-  code: varchar("code", { length: 64 }).notNull().unique(),
-  type: varchar("type", { length: 16 }).notNull(),
-  value: int("value").notNull(),
-  minPurchase: int("min_purchase").notNull().default(0),
-  maxDiscount: int("max_discount"),
-  validFrom: date("valid_from", { mode: "string" }).notNull(),
-  validUntil: date("valid_until", { mode: "string" }),
-  usageLimit: int("usage_limit"),
-  usedCount: int("used_count").notNull().default(0),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+export const vouchers = sqliteTable("vouchers", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  code: text("code").notNull().unique(),
+  type: text("type").notNull(),
+  value: integer("value").notNull(),
+  minPurchase: integer("min_purchase").notNull().default(0),
+  maxDiscount: integer("max_discount"),
+  validFrom: text("valid_from").notNull(),
+  validUntil: text("valid_until"),
+  usageLimit: integer("usage_limit"),
+  usedCount: integer("used_count").notNull().default(0),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (t) => ({
   codeIdx: uniqueIndex("vouchers_code_idx").on(t.code),
   activeIdx: index("vouchers_active_idx").on(t.isActive, t.validFrom, t.validUntil),
 }));
 
-export const searchFrequency = mysqlTable("search_frequency", {
-  skuKey: varchar("sku_key", { length: 128 }).primaryKey(),
-  count: int("count").notNull().default(0),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+export const cashierShifts = sqliteTable("cashier_shifts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cashierId: integer("cashier_id").notNull().references(() => users.id),
+  openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  closedAt: integer("closed_at", { mode: "timestamp_ms" }),
+  startingCash: integer("starting_cash").notNull().default(0),
+  expectedCash: integer("expected_cash"),
+  actualCash: integer("actual_cash"),
+  cashDiff: integer("cash_diff"),
+  notes: text("notes"),
+  status: text("status").notNull().default("open"), // 'open' | 'closed'
+}, (t) => ({
+  cashierStatusIdx: index("shifts_cashier_status_idx").on(t.cashierId, t.status),
+}));
+
+export const heldCarts = sqliteTable("held_carts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cashierId: integer("cashier_id").notNull().references(() => users.id),
+  label: text("label").notNull(),
+  cartJson: text("cart_json").notNull(),
+  subtotal: integer("subtotal").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+}, (t) => ({
+  cashierIdx: index("held_carts_cashier_idx").on(t.cashierId),
+}));
+
+export const searchFrequency = sqliteTable("search_frequency", {
+  skuKey: text("sku_key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 });
 
-// Penghitung nomor invoice harian — atomik via LAST_INSERT_ID trick
-export const invoiceCounters = mysqlTable("invoice_counters", {
-  day: varchar("day", { length: 8 }).primaryKey(), // YYYYMMDD
-  lastNo: int("last_no").notNull().default(0),
+export const invoiceCounters = sqliteTable("invoice_counters", {
+  day: text("day").primaryKey(),
+  lastNo: integer("last_no").notNull().default(0),
 });
 
 export const usersRelations = relations(users, ({ many }) => ({
   sales: many(sales, { relationName: "cashier" }),
+  shifts: many(cashierShifts),
   purchasesCreated: many(purchases, { relationName: "creator" }),
   purchasesReceived: many(purchases, { relationName: "receiver" }),
   movements: many(inventoryMovements),
@@ -303,7 +330,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   receivablePayments: many(receivablePayments),
 }));
 
-export const productsRelations = relations(products, ({ many, one }) => ({
+export const productsRelations = relations(products, ({ many }) => ({
   variants: many(productVariants),
   saleItems: many(saleItems),
   movements: many(inventoryMovements),
@@ -315,6 +342,11 @@ export const productVariantsRelations = relations(productVariants, ({ one, many 
   saleItems: many(saleItems),
   opnameItems: many(stockOpnameItems),
   movements: many(inventoryMovements),
+  priceTiers: many(priceTiers),
+}));
+
+export const priceTiersRelations = relations(priceTiers, ({ one }) => ({
+  variant: one(productVariants, { fields: [priceTiers.variantId], references: [productVariants.id] }),
 }));
 
 export const suppliersRelations = relations(suppliers, ({ many }) => ({
@@ -380,3 +412,10 @@ export const cashEntriesRelations = relations(cashEntries, ({ one }) => ({
   creator: one(users, { fields: [cashEntries.createdBy], references: [users.id] }),
 }));
 
+export const cashierShiftsRelations = relations(cashierShifts, ({ one }) => ({
+  cashier: one(users, { fields: [cashierShifts.cashierId], references: [users.id] }),
+}));
+
+export const heldCartsRelations = relations(heldCarts, ({ one }) => ({
+  cashier: one(users, { fields: [heldCarts.cashierId], references: [users.id] }),
+}));

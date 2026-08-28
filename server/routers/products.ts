@@ -81,7 +81,7 @@ export const productsRouter = router({
   create: adminProcedure.input(productCreateSchema).mutation(async ({ input }) => {
     return db.transaction(async (tx) => {
       const { variants, ...prod } = input;
-      const [p] = await tx.insert(products).values({ ...prod, stock: 0 }).$returningId();
+      const [p] = await tx.insert(products).values({ ...prod, stock: 0 }).returning({ id: products.id });
       let totalStock = 0;
       for (const v of variants) {
         const { id, ...vData } = v;
@@ -204,7 +204,11 @@ export const productsRouter = router({
       productStock: products.stock,
       minStock: products.minStock,
     }).from(productVariants).innerJoin(products, eq(products.id, productVariants.productId))
-      .where(and(eq(productVariants.barcode, input.barcode), eq(productVariants.isActive, true), eq(products.isActive, true)))
+      .where(and(
+        eq(productVariants.isActive, true),
+        eq(products.isActive, true),
+        or(eq(productVariants.barcode, input.barcode), eq(products.barcode, input.barcode))
+      ))
       .limit(1);
     if (!pv) return null;
     return pv;

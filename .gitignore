@@ -7,6 +7,11 @@ dist/
 .impeccable/
 *.log
 *.err
+*.db
+*.sqlite
+*.db-journal
+*.db-wal
+*.db-shm
 backups/
 test-results/
 playwright-report/

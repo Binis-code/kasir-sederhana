@@ -20,7 +20,7 @@ export const notificationsRouter = router({
       amount: sql<number>`${receivables.amount} - ${receivables.paidAmount}`,
       dueDate: receivables.dueDate,
     }).from(receivables)
-      .where(and(ne(receivables.status, "paid"), lte(receivables.dueDate, sql`CURDATE()`)))
+      .where(and(ne(receivables.status, "paid"), lte(receivables.dueDate, sql`date('now')`)))
       .orderBy(asc(receivables.dueDate)).limit(10);
 
     return {
@@ -30,6 +30,3 @@ export const notificationsRouter = router({
     };
   }),
 });
-
-
-

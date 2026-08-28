@@ -17,6 +17,7 @@ import Finance from "./pages/Finance.js";
 import Reports from "./pages/Reports.js";
 import Users from "./pages/Users.js";
 import Receipt from "./pages/Receipt.js";
+import ShiftPage from "./pages/Shift.js";
 
 export default function App() {
   const [user, setUser] = useState<SessionUserLike | null | undefined>(undefined);
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="/opname" component={Opname} />
           <Route path="/receivables" component={Receivables} />
           <Route path="/finance"><Finance user={user} /></Route>
+          <Route path="/shifts"><ShiftPage role={user.role} /></Route>
           <Route path="/reports">{isAdmin ? <Reports /> : <Forbidden />}</Route>
           <Route path="/users">{isAdmin ? <Users /> : <Forbidden />}</Route>
           <Route component={() => <p className="p-8 text-center text-sm text-gray-500">Halaman tidak ditemukan.</p>} />

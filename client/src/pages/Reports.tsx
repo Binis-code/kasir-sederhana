@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { trpc } from "../lib/trpc.js";
-import { formatRupiah } from "@shared/money.js";
-import { Card, CardHeader, Input, NativeSelect, Badge, Spinner, cn } from "../components/ui.js";
+import { formatRupiah, generateCSV } from "@shared/money.js";
+import { Card, CardHeader, Input, NativeSelect, Badge, Spinner, Button, cn, toast } from "../components/ui.js";
+import { Download } from "lucide-react";
 
 function rangePreset(days: number): { from: string; to: string } {
   const to = new Date();
@@ -16,27 +17,83 @@ export default function Reports() {
   const range = useMemo(() => (preset === "custom" ? custom : rangePreset(Number(preset))), [preset, custom]);
 
   const sales = trpc.reports.salesSummary.useQuery(range);
-  const top = trpc.reports.topProducts.useQuery({ ...range, limit: 10 });
+  const top = trpc.reports.topProducts.useQuery({ ...range, limit: 20 });
   const profit = trpc.reports.basicProfit.useQuery(range);
   const recv = trpc.reports.receivablesSummary.useQuery();
 
   const maxDaily = Math.max(1, ...(sales.data?.daily ?? []).map(d => d.total));
 
+  function exportSalesCSV() {
+    if (!sales.data) return toast("Data belum siap untuk diexport", "err");
+
+    const headers = ["Tanggal / Kategori", "Jumlah Transaksi / Qty", "Total Nominal (Rp)"];
+    const rows: (string | number)[][] = [];
+
+    // Daily breakdown
+    rows.push(["--- PENJUALAN HARIAN ---", "", ""]);
+    for (const d of sales.data.daily) {
+      rows.push([d.day, d.count, d.total]);
+    }
+
+    // Payment methods breakdown
+    rows.push(["", "", ""]);
+    rows.push(["--- METODE PEMBAYARAN ---", "", ""]);
+    for (const m of sales.data.byMethod) {
+      rows.push([m.method.toUpperCase(), m.count, m.total]);
+    }
+
+    // Top products
+    if (top.data?.length) {
+      rows.push(["", "", ""]);
+      rows.push(["--- PRODUK TERLARIS ---", "", ""]);
+      for (const t of top.data) {
+        rows.push([t.name, t.qtySold, t.revenue]);
+      }
+    }
+
+    // Profit summary
+    if (profit.data) {
+      rows.push(["", "", ""]);
+      rows.push(["--- REKAP LABA RUGI ---", "", ""]);
+      rows.push(["Omzet (Penjualan)", "", profit.data.revenue]);
+      rows.push(["HPP (Harga Pokok Penjualan)", "", profit.data.cogs]);
+      rows.push(["Laba Kotor", "", profit.data.grossProfit]);
+      rows.push(["Pemasukan Lain", "", profit.data.otherIncome]);
+      rows.push(["Pengeluaran Operasional", "", profit.data.expense]);
+      rows.push(["Estimasi Laba Bersih", "", profit.data.netEstimate]);
+    }
+
+    const csvStr = generateCSV(headers, rows);
+    const blob = new Blob([csvStr], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Laporan_KiosNusa_${range.from}_sd_${range.to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("Laporan CSV berhasil diunduh");
+  }
+
   return (
     <div className="space-y-4 p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-sm font-bold text-gray-800">Laporan</h2>
-        <NativeSelect className="ml-auto max-w-[150px]" value={preset} onChange={(e) => setPreset(e.target.value as typeof preset)}>
-          <option value="7">7 hari</option>
-          <option value="30">30 hari</option>
-          <option value="custom">Rentang kustom</option>
-        </NativeSelect>
-        {preset === "custom" && (
-          <>
-            <Input type="date" className="w-36" value={custom.from} onChange={(e) => setCustom(c => ({ ...c, from: e.target.value }))} />
-            <Input type="date" className="w-36" value={custom.to} onChange={(e) => setCustom(c => ({ ...c, to: e.target.value }))} />
-          </>
-        )}
+        <h2 className="text-sm font-bold text-gray-800">Laporan Keuangan & Penjualan</h2>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <NativeSelect className="max-w-[150px]" value={preset} onChange={(e) => setPreset(e.target.value as typeof preset)}>
+            <option value="7">7 hari terakhir</option>
+            <option value="30">30 hari terakhir</option>
+            <option value="custom">Rentang kustom</option>
+          </NativeSelect>
+          {preset === "custom" && (
+            <>
+              <Input type="date" className="w-36" value={custom.from} onChange={(e) => setCustom(c => ({ ...c, from: e.target.value }))} />
+              <Input type="date" className="w-36" value={custom.to} onChange={(e) => setCustom(c => ({ ...c, to: e.target.value }))} />
+            </>
+          )}
+          <Button variant="outline" size="sm" onClick={exportSalesCSV}>
+            <Download size={14} /> Export CSV
+          </Button>
+        </div>
       </div>
 
       {sales.isLoading ? <Spinner /> : sales.data && (
@@ -129,4 +186,3 @@ function Stat({ title, value, sub, tone }: { title: string; value: string; sub?:
     </Card>
   );
 }
-
