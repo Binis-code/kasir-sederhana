@@ -1,88 +1,106 @@
 # Kios Nusa POS & Shop Management
 
-Aplikasi kasir & operasional toko kecil: mobile-first, Bahasa Indonesia, dengan
-katalog varian/barcode, pembelian, stok + opname, piutang, keuangan, laporan,
-struk thermal 80mm, scan barcode kamera, dan peran owner/admin/kasir.
+Aplikasi Kasir (Point of Sale) & Operasional Toko Retail / Kelontong modern, ringan, dan siap pakai. Menggunakan arsitektur embedded SQLite (zero-dependency, tanpa perlu instalasi database server terpisah), mobile-first UI, Bahasa Indonesia, serta fitur operasional toko lengkap.
 
-**Stack:** React 19 · Vite · tRPC · Drizzle ORM · MySQL 8 (Docker) · Tailwind 4
+**Repository Publik:** [https://github.com/Binis-code/kasir-sederhana](https://github.com/Binis-code/kasir-sederhana)
 
-## Setup cepat (mesin baru)
+---
 
-Prasyarat: Node ≥ 20, pnpm, Docker Desktop.
+## Fitur Utama
+
+- **Embedded SQLite Database**: Berjalan otomatis langsung ke file `kios_nusa.db` via `@libsql/client` (tanpa perlu MySQL/Docker).
+- **Kasir & POS Cepat**:
+  - Scan barcode kamera langsung (`BarcodeDetector` API).
+  - Tahan / Parkir Keranjang (Hold Carts & Pending Orders) dengan label penanda & restore instan.
+  - Multi-varian produk & harga grosir bertingkat (Tiered Wholesale Pricing).
+  - Berbagai metode pembayaran (Cash, QRIS, Debit, Piutang).
+- **Struk Digital & Thermal**:
+  - Kirim struk pembelian langsung ke WhatsApp pelanggan dalam format teks markdown rapi.
+  - Cetak struk thermal dengan toggle ukuran kertas 58 mm & 80 mm.
+- **Manajemen Shift & Rekonsiliasi Laci Kas (Cash Drawer)**:
+  - Buka shift dengan input modal kas awal.
+  - Tutup shift dengan rekonsiliasi fisik kas laci vs ekspektasi sistem beserta catatan selisih (`cashDiff`).
+- **Pembelian & Smart Reorder (Auto-PO)**:
+  - Analisis laju penjualan 7 hari terakhir (*sales velocity*).
+  - Rekomendasi kuantitas pesan ulang otomatis dan pembuatan PO 1-klik.
+- **Inventori & Stok Opname**:
+  - Pelacakan mutasi stok otomatis per transaksi kasir dan penerimaan PO.
+  - Manajemen stok opname berkala.
+- **Laporan & Export CSV**:
+  - Rekap penjualan harian, metode bayar, produk terlaris, laba kotor, dan estimasi laba bersih.
+  - Export satu klik laporan keuangan dan penjualan ke file `.csv`.
+- **Backup Database 1-Klik**:
+  - Snapshot file database SQLite instan ke folder `backups/`.
+- **PWA (Progressive Web App)**:
+  - Dapat di-install langsung ke homescreen Android / iOS / Desktop sebagai aplikasi mandiri.
+
+---
+
+## Setup Cepat (Menjalankan di Mesin Baru)
+
+Prasyarat: **Node.js ≥ 20** dan **pnpm** (atau npm).
 
 ```bash
+# 1. Clone repository
+git clone https://github.com/Binis-code/kasir-sederhana.git
+cd kasir-sederhana
+
+# 2. Install dependencies
 pnpm install
-docker compose up -d          # MySQL di 127.0.0.1:3306 (kasir-mysql)
-cp .env.example .env          # lalu isi nilai nyata
-pnpm db:push                  # terapkan skema Drizzle
-pnpm db:seed                  # data demo: produk sembako, supplier, transaksi
-pnpm dev                      # web :5173 + API :3000
+
+# 3. Setup file konfigurasi .env
+cp .env.example .env
+
+# 4. Terapkan database schema & data katalog awal (seed)
+pnpm db:push
+pnpm db:seed
+
+# 5. Jalankan aplikasi (Web + Backend API)
+pnpm dev
 ```
 
-`.env` minimal:
+Aplikasi langsung dapat diakses di browser: **[http://localhost:5173](http://localhost:5173)**.
 
-```
-DATABASE_URL=mysql://kios:kios123@localhost:3306/kios_nusa
-JWT_SECRET=<string acak panjang>
-PORT=3000
-OWNER_USERNAME=owner
-OWNER_PASSWORD=<password kuat>
-STORE_NAME=Kios Nusa
-SEED_DEMO_SALES=1
-```
+---
 
-> `JWT_SECRET` **wajib** saat `NODE_ENV=production` — server menolak start tanpanya.
+## Akun Login Default (Setelah Seed)
 
-## Akun default (setelah seed — SEGERA ganti via menu Sistem → Pengguna)
-
-| Peran | Username | Password |
+| Peran | Username | Password Default |
 |---|---|---|
-| Owner | dari `.env` (`owner`) | dari `.env` |
-| Admin | `admin` | `admin123` (demo — segera ganti) |
-| Kasir | `kasir` | `kasir123` (demo — segera ganti) |
+| **Owner** | `owner` | `KiosNusa!Owner26` |
+| **Admin** | `admin` | `admin123` |
+| **Kasir** | `kasir` | `kasir123` |
 
-## Perintah penting
+> *Catatan: Segera perbarui password melalui menu Pengguna (Sistem) setelah login pertama kali.*
 
-| Perintah | Fungsi |
-|---|---|
-| `pnpm dev` | Jalankan web (:5173) + API (:3000) |
-| `pnpm check` | Typecheck TypeScript |
-| `pnpm test` | Unit test (Vitest, hanya `tests/`) |
-| `pnpm test:e2e` | E2E Playwright (5 spec; butuh Docker MySQL hidup) |
-| `pnpm db:push` | Terapkan schema → DB (dev cepat) |
-| `pnpm db:generate` | Buat file migrasi SQL di `drizzle/migrations/` |
-| `pnpm db:migrate` | Terapkan migrasi SQL (untuk produksi/staging) |
-| `pnpm db:backup` | Dump DB ke `backups/*.sql` (retensi 14 hari) |
-| `node scripts/probe.mjs` | Smoke test UI (login + cari produk di kasir) |
+---
 
-Alur skema yang disarankan: ubah `drizzle/schema.ts` → `pnpm db:generate`
-(review SQL!) → `pnpm db:migrate`. Untuk iterasi lokal cepat boleh `db:push`,
-tapi jangan di database produksi.
+## Testing & Verifikasi
 
-## Backup otomatis
+```bash
+# Unit test Vitest (22 passing)
+pnpm test
 
-Task Scheduler Windows: **KiosNusa DB Backup**, harian 21:00,
-menjalankan `scripts/backup-db.ps1` → `backups/kios_nusa-*.sql`.
-Uji manual: `pnpm db:backup`.
+# Type check TypeScript (0 error)
+pnpm check
 
-## Catatan operasional
+# Visual smoke & E2E browser tests (10 passing)
+node scripts/shoot.mjs
+```
 
-- **Printer struk**: jalur utama `window.print()` — instal printer thermal 80mm
-  di OS lalu pilih pada dialog cetak browser.
-- **Scan barcode**: kamera belakang via `BarcodeDetector` (Chrome/Edge Android &
-  desktop Chromium). Browser tak didukung → input manual tersedia.
-- **Keamanan**: password default demo WAJIB diganti sebelum dipakai toko nyata;
-  ganti password mencabut semua sesi aktif user tersebut.
-- **Data**: semua nominal rupiah integer; setiap mutasi stok tercatat di
-  `inventory_movements`; harga modal disimpan snapshot-nya per item penjualan.
+---
 
-## Struktur kode
+## Struktur Folder
 
 ```
-client/src/pages   Halaman (Kasir, Products, Inventory, ...)
-server/routers     Prosedur tRPC per domain (pos, products, inventory, ...)
-drizzle/schema.ts  Skema DB (sumber kebenaran)
-shared/            Helper lintas sisi (money.ts, search-utils.ts)
-e2e/               Spec Playwright
-tests/             Unit test Vitest
+client/src/pages/    # Halaman UI (Kasir, Shift, Purchases, Inventory, Reports, ...)
+server/routers/      # API tRPC backend (pos, shifts, backup, purchases, reports, ...)
+drizzle/schema.ts    # Skema SQLite database Drizzle
+shared/money.ts      # Utility kalkulasi rupiah, harga bertingkat, nota WA, CSV generator
+public/manifest.json # PWA Web App Manifest
 ```
+
+---
+
+## Lisensi
+MIT License.
