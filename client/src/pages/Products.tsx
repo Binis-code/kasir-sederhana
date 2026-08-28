@@ -7,7 +7,7 @@ import {
 } from "../components/ui.js";
 import { BarcodeScanner } from "../components/BarcodeScanner.js";
 import { lookupBarcode } from "../lib/barcode-lookup.js";
-import { Plus, Pencil, Archive, PackageSearch, ScanLine, Trash2 } from "lucide-react";
+import { Plus, Pencil, Archive, PackageSearch, ScanLine, Trash2, Upload, FileSpreadsheet, Download } from "lucide-react";
 
 type VariantForm = { id?: number; label: string; barcode: string; sellingPrice: number; costPrice: number; stock: number };
 
@@ -18,6 +18,7 @@ export default function Products({ role }: { role?: string }) {
   const [lowOnly, setLowOnly] = useState(false);
   const [editing, setEditing] = useState<number | null>(null); // null=closed, 0=create, >0=edit id
   const [adjusting, setAdjusting] = useState<number | null>(null); // productId sesi stok ±
+  const [importModal, setImportModal] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const utils = trpc.useUtils();
 
@@ -42,7 +43,12 @@ export default function Products({ role }: { role?: string }) {
         <Input className="max-w-xs" placeholder="Cari nama/kategori/barcode…" value={q} onChange={(e) => search(e.target.value)} />
         <Button variant="outline" aria-label="Scan barcode untuk mencari produk" onClick={() => setScanOpen(true)}><ScanLine size={16} /> Scan</Button>
         <Button variant={lowOnly ? "default" : "outline"} onClick={() => setLowOnly(l => !l)}>Stok menipis</Button>
-        <div className="ml-auto">
+        <div className="ml-auto flex gap-2">
+          {isAdmin && (
+            <Button variant="outline" onClick={() => setImportModal(true)}>
+              <Upload size={16} /> Import CSV
+            </Button>
+          )}
           <Button onClick={() => setEditing(0)}><Plus size={16} /> Produk baru</Button>
         </div>
       </div>
@@ -68,6 +74,13 @@ export default function Products({ role }: { role?: string }) {
       {adjusting !== null && (
         <StockAdjustModal productId={adjusting} onClose={(changed) => {
           setAdjusting(null);
+          if (changed) void utils.products.list.invalidate();
+        }} />
+      )}
+
+      {importModal && (
+        <BulkImportModal onClose={(changed) => {
+          setImportModal(false);
           if (changed) void utils.products.list.invalidate();
         }} />
       )}
@@ -308,3 +321,129 @@ function ProductFormModal({ id, onClose }: { id: number | null; onClose: (change
     </Modal>
   );
 }
+
+function BulkImportModal({ onClose }: { onClose: (changed: boolean) => void }) {
+  const [csvText, setCsvText] = useState("");
+  const [parsedItems, setParsedItems] = useState<Array<{
+    name: string;
+    category: string;
+    barcode: string;
+    variantLabel: string;
+    sellingPrice: number;
+    costPrice: number;
+    stock: number;
+    minStock: number;
+  }>>([]);
+
+  const importMut = trpc.tools.bulkImportProducts.useMutation({
+    onSuccess: (res: { count: number }) => {
+      toast(`${res.count} produk berhasil diimport`);
+      onClose(true);
+    },
+    onError: (e: { message: string }) => toast(e.message, "err"),
+  });
+
+  function handleParse(raw: string) {
+    setCsvText(raw);
+    const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length <= 1) {
+      setParsedItems([]);
+      return;
+    }
+
+    const items: typeof parsedItems = [];
+    // skip header line if it contains "Nama" or "Produk"
+    const startIndex = (lines[0].toLowerCase().includes("nama") || lines[0].toLowerCase().includes("produk")) ? 1 : 0;
+
+    for (let i = startIndex; i < lines.length; i++) {
+      const parts = lines[i].split(",").map(p => p.trim().replace(/^["']|["']$/g, ""));
+      if (parts.length >= 4 && parts[0]) {
+        items.push({
+          name: parts[0],
+          category: parts[1] || "Umum",
+          barcode: parts[2] || "",
+          variantLabel: parts[3] || "Standar",
+          sellingPrice: Number(parts[4]) || 0,
+          costPrice: Number(parts[5]) || 0,
+          stock: Number(parts[6]) || 0,
+          minStock: Number(parts[7]) || 5,
+        });
+      }
+    }
+    setParsedItems(items);
+  }
+
+  function downloadSampleCSV() {
+    const header = "Nama Produk,Kategori,Barcode,Varian,Harga Jual,Harga Modal,Stok Awal,Stok Minimum\n";
+    const sample = 'Beras Ramos 5kg,Sembako,899123456001,Karung,72000,65000,20,5\nMinyak Goreng 2L,Sembako,899123456002,Pouch,34000,30000,40,10\nGula Pasir 1kg,Sembako,899123456003,Bungkus,17500,15000,50,10\n';
+    const blob = new Blob(["\uFEFF" + header + sample], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "Template_Import_Produk_KiosNusa.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <Modal open onClose={() => onClose(false)} title="Import Produk Massal (CSV / Excel)" wide>
+      <div className="space-y-4 text-xs">
+        <div className="flex items-center justify-between rounded-lg border border-brand-200 bg-brand-50 p-3">
+          <div className="flex items-center gap-2">
+            <FileSpreadsheet size={20} className="text-brand-700" />
+            <div>
+              <p className="font-semibold text-brand-900">Format Template Spreadsheet</p>
+              <p className="text-[11px] text-brand-700">Nama, Kategori, Barcode, Varian, Harga Jual, Harga Modal, Stok, Min Stok</p>
+            </div>
+          </div>
+          <Button size="sm" variant="outline" onClick={downloadSampleCSV}>
+            <Download size={14} /> Unduh Template CSV
+          </Button>
+        </div>
+
+        <div>
+          <Label>Tempel (Paste) Isi CSV atau Ketik Data Produk</Label>
+          <textarea
+            className="w-full h-32 rounded-lg border border-warm-300 p-2 font-mono text-xs focus:border-brand-500 focus:outline-none"
+            placeholder="Tempel baris data CSV di sini..."
+            value={csvText}
+            onChange={(e) => handleParse(e.target.value)}
+          />
+        </div>
+
+        {parsedItems.length > 0 && (
+          <div>
+            <p className="mb-1 font-semibold text-gray-800">
+              Pratinjau {parsedItems.length} Produk Siap Diimport:
+            </p>
+            <div className="max-h-40 overflow-y-auto divide-y divide-warm-100 rounded-lg border border-warm-200 bg-white">
+              {parsedItems.map((it, idx) => (
+                <div key={idx} className="flex items-center justify-between p-2">
+                  <div>
+                    <span className="font-semibold text-gray-900">{it.name}</span>
+                    <span className="text-gray-500"> ({it.variantLabel} · {it.category})</span>
+                  </div>
+                  <div className="text-right font-medium">
+                    <span className="text-brand-700">{formatRupiah(it.sellingPrice)}</span>
+                    <span className="ml-2 text-gray-500">stok {it.stock}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" onClick={() => onClose(false)}>Batal</Button>
+          <Button
+            disabled={importMut.isPending || !parsedItems.length}
+            onClick={() => importMut.mutate({ items: parsedItems })}
+          >
+            {importMut.isPending ? "Mengimport…" : `Import ${parsedItems.length} Produk`}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+

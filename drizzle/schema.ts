@@ -419,3 +419,71 @@ export const cashierShiftsRelations = relations(cashierShifts, ({ one }) => ({
 export const heldCartsRelations = relations(heldCarts, ({ one }) => ({
   cashier: one(users, { fields: [heldCarts.cashierId], references: [users.id] }),
 }));
+
+export const outlets = sqliteTable("outlets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  code: text("code").notNull().unique(),
+  address: text("address"),
+  phone: text("phone"),
+  isMain: integer("is_main", { mode: "boolean" }).notNull().default(false),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+});
+
+export const stockTransfers = sqliteTable("stock_transfers", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  transferNo: text("transfer_no").notNull().unique(),
+  fromOutletId: integer("from_outlet_id").notNull().references(() => outlets.id),
+  toOutletId: integer("to_outlet_id").notNull().references(() => outlets.id),
+  status: text("status").notNull().default("pending"),
+  notes: text("notes"),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  receivedBy: integer("received_by").references(() => users.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  receivedAt: integer("received_at", { mode: "timestamp_ms" }),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+}, (t) => ({
+  statusIdx: index("transfers_status_idx").on(t.status),
+  dateIdx: index("transfers_date_idx").on(t.createdAt),
+}));
+
+export const stockTransferItems = sqliteTable("stock_transfer_items", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  transferId: integer("transfer_id").notNull().references(() => stockTransfers.id, { onDelete: "cascade" }),
+  variantId: integer("variant_id").notNull().references(() => productVariants.id),
+  qty: integer("qty").notNull(),
+});
+
+export const productBatches = sqliteTable("product_batches", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  variantId: integer("variant_id").notNull().references(() => productVariants.id, { onDelete: "cascade" }),
+  batchNo: text("batch_no").notNull(),
+  expiryDate: text("expiry_date").notNull(), // YYYY-MM-DD
+  qty: integer("qty").notNull().default(0),
+  costPrice: integer("cost_price").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+}, (t) => ({
+  expiryIdx: index("batches_expiry_idx").on(t.expiryDate),
+  variantIdx: index("batches_variant_idx").on(t.variantId),
+}));
+
+export const stockTransfersRelations = relations(stockTransfers, ({ one, many }) => ({
+  fromOutlet: one(outlets, { fields: [stockTransfers.fromOutletId], references: [outlets.id], relationName: "fromOutlet" }),
+  toOutlet: one(outlets, { fields: [stockTransfers.toOutletId], references: [outlets.id], relationName: "toOutlet" }),
+  creator: one(users, { fields: [stockTransfers.createdBy], references: [users.id], relationName: "creator" }),
+  receiver: one(users, { fields: [stockTransfers.receivedBy], references: [users.id], relationName: "receiver" }),
+  items: many(stockTransferItems),
+}));
+
+export const stockTransferItemsRelations = relations(stockTransferItems, ({ one }) => ({
+  transfer: one(stockTransfers, { fields: [stockTransferItems.transferId], references: [stockTransfers.id] }),
+  variant: one(productVariants, { fields: [stockTransferItems.variantId], references: [productVariants.id] }),
+}));
+
+export const productBatchesRelations = relations(productBatches, ({ one }) => ({
+  variant: one(productVariants, { fields: [productBatches.variantId], references: [productVariants.id] }),
+}));
+

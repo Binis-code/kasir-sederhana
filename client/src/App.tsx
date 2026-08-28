@@ -18,6 +18,9 @@ import Reports from "./pages/Reports.js";
 import Users from "./pages/Users.js";
 import Receipt from "./pages/Receipt.js";
 import ShiftPage from "./pages/Shift.js";
+import OutletsPage from "./pages/Outlets.js";
+import BarcodeGenerator from "./pages/BarcodeGenerator.js";
+import CustomerDisplay from "./pages/CustomerDisplay.js";
 
 export default function App() {
   const [user, setUser] = useState<SessionUserLike | null | undefined>(undefined);
@@ -26,6 +29,11 @@ export default function App() {
   useEffect(() => {
     void fetchMe().then(setUser);
   }, []);
+
+  // Customer Display: standalone secondary monitor, does not require login or shell
+  if (location === "/display" || location === "/customer-display") {
+    return <CustomerDisplay />;
+  }
 
   if (user === undefined) return <Spinner className="min-h-screen" />;
 
@@ -51,6 +59,8 @@ export default function App() {
           <Route path="/" component={Dashboard} />
           <Route path="/pos"><Kasir role={user.role} /></Route>
           <Route path="/products"><Products role={user.role} /></Route>
+          <Route path="/barcodes" component={BarcodeGenerator} />
+          <Route path="/outlets"><OutletsPage role={user.role} /></Route>
           <Route path="/suppliers" component={Suppliers} />
           <Route path="/purchases" component={Purchases} />
           <Route path="/inventory" component={Inventory} />

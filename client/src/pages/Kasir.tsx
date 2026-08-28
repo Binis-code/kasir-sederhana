@@ -4,6 +4,7 @@ import { trpc } from "../lib/trpc.js";
 import { formatRupiah, generateWhatsAppReceiptText } from "@shared/money.js";
 import { calcLineTotal, applyTransactionDiscount, applyVoucher } from "@shared/money.js";
 import { bumpSkuFrequency, pushRecentQuery } from "@shared/search-utils.js";
+import { broadcastCustomerDisplay } from "../lib/escpos.js";
 import {
   Button, Card, Input, Label, NativeSelect, Badge, Spinner, Modal,
   EmptyState, cn, toast, ErrorText
@@ -12,7 +13,7 @@ import { BarcodeScanner } from "../components/BarcodeScanner.js";
 import { lookupBarcode } from "../lib/barcode-lookup.js";
 import {
   Search, ScanLine, Minus, Plus, Trash2, CheckCircle2, Printer, ShoppingCart,
-  PauseCircle, PlayCircle, Share2, Wallet, AlertCircle
+  PauseCircle, PlayCircle, Share2, Wallet, AlertCircle, Tv, Sparkles
 } from "lucide-react";
 
 type CartLine = {
@@ -180,6 +181,30 @@ export default function Kasir({ role }: { role?: string }) {
   const unpaid = total - Math.min(paid, total);
   const needsCredit = unpaid > 0;
 
+  // Cross-sell recommendation query
+  const cartVariantIds = useMemo(() => cart.map(c => c.variantId), [cart]);
+  const crossSellQ = trpc.analytics.crossSellSuggestions.useQuery(
+    { variantIds: cartVariantIds },
+    { enabled: cartVariantIds.length > 0 }
+  );
+
+  // Broadcast to second monitor / customer display
+  useEffect(() => {
+    broadcastCustomerDisplay({
+      items: cart.map(c => ({
+        name: `${c.name} (${c.label})`,
+        qty: c.qty,
+        price: effPrice(c),
+        lineTotal: calcLineTotal(c.qty, effPrice(c), c.discount),
+      })),
+      subtotal,
+      discountTotal: itemDiscTotal + trxDisc + voucherDisc,
+      total,
+      paymentMethod: method,
+      isSuccess: false,
+    });
+  }, [cart, subtotal, itemDiscTotal, trxDisc, voucherDisc, total, method]);
+
   const checkout = trpc.pos.checkout.useMutation({
     onSuccess: (res) => {
       for (const l of cartRef.current) bumpSkuFrequency(String(l.variantId));
@@ -190,6 +215,21 @@ export default function Kasir({ role }: { role?: string }) {
         paidAmount: paid,
         subtotal,
         discountTotal: itemDiscTotal + trxDisc + voucherDisc,
+      });
+      broadcastCustomerDisplay({
+        items: [...cartRef.current].map(c => ({
+          name: `${c.name} (${c.label})`,
+          qty: c.qty,
+          price: effPrice(c),
+          lineTotal: calcLineTotal(c.qty, effPrice(c), c.discount),
+        })),
+        subtotal,
+        discountTotal: itemDiscTotal + trxDisc + voucherDisc,
+        total: res.total,
+        paymentMethod: method,
+        isSuccess: true,
+        invoiceNo: res.invoiceNo,
+        changeAmount: res.changeAmount,
       });
       resetCart();
       void utils.dashboard.summary.invalidate();
@@ -327,6 +367,16 @@ export default function Kasir({ role }: { role?: string }) {
           </div>
           <Button variant="outline" size="icon" aria-label="Scan barcode" onClick={() => setScanOpen(true)}><ScanLine size={18} /></Button>
 
+          {/* Customer Display Button */}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => window.open("/display", "customer_display", "width=1024,height=768")}
+            title="Buka Layar Pelanggan (Dual Display)"
+          >
+            <Tv size={18} />
+          </Button>
+
           {/* Held Carts Badge Button */}
           <Button
             variant={heldCount > 0 ? "default" : "outline"}
@@ -344,7 +394,7 @@ export default function Kasir({ role }: { role?: string }) {
           </Button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto space-y-3">
           {productsQ.isLoading ? <Spinner /> :
            !productsQ.data?.items.length ? (
             <EmptyState icon={<ShoppingCart size={28} />} title={q ? `Tidak ada produk “${q}”` : "Belum ada produk"} description="Tambahkan produk lewat menu Produk." />
@@ -365,6 +415,42 @@ export default function Kasir({ role }: { role?: string }) {
                   </div>
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* AI Cross-Sell Suggestions Widget */}
+          {crossSellQ.data && crossSellQ.data.length > 0 && (
+            <div className="rounded-xl border border-brand-200 bg-brand-50/50 p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-bold text-brand-800">
+                <Sparkles size={14} className="text-brand-600" />
+                <span>Sering Dibeli Bersamaan (Rekomendasi Tambahan)</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {crossSellQ.data.map((item: { variantId: number; productName: string; variantLabel: string; sellingPrice: number; stock: number }) => (
+                  <button
+                    key={item.variantId}
+                    type="button"
+                    onClick={() => {
+                      addToCart({
+                        variantId: item.variantId,
+                        productId: 0,
+                        name: item.productName,
+                        label: item.variantLabel,
+                        price: item.sellingPrice,
+                        stock: item.stock,
+                      });
+                      toast(`${item.productName} ditambahkan`);
+                    }}
+                    className="flex items-center justify-between rounded-lg border border-brand-200 bg-white p-2 text-left shadow-xs hover:border-brand-500"
+                  >
+                    <div className="min-w-0 pr-2">
+                      <p className="truncate text-xs font-semibold text-gray-800">{item.productName}</p>
+                      <p className="text-[10px] text-gray-500">{item.variantLabel}</p>
+                    </div>
+                    <span className="text-xs font-bold text-brand-700">{formatRupiah(item.sellingPrice)}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>

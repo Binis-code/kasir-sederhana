@@ -20,6 +20,8 @@ const NAV = [
   ]},
   { group: "Operasional", items: [
     { href: "/products", label: "Produk", icon: Package },
+    { href: "/barcodes", label: "Cetak Barcode", icon: Tags },
+    { href: "/outlets", label: "Cabang & Transfer", icon: Store },
     { href: "/suppliers", label: "Pemasok", icon: Truck },
     { href: "/purchases", label: "Pembelian", icon: ReceiptText },
     { href: "/inventory", label: "Stok", icon: Boxes },

@@ -14,6 +14,9 @@ import { notificationsRouter } from "./notifications.js";
 import { discountsRouter } from "./discounts.js";
 import { shiftsRouter } from "./shifts.js";
 import { backupRouter } from "./backup.js";
+import { outletsRouter } from "./outlets.js";
+import { analyticsRouter } from "./analytics.js";
+import { toolsRouter } from "./tools.js";
 
 export const appRouter = router({
   auth: authRouter,
@@ -31,6 +34,9 @@ export const appRouter = router({
   discounts: discountsRouter,
   shifts: shiftsRouter,
   backup: backupRouter,
+  outlets: outletsRouter,
+  analytics: analyticsRouter,
+  tools: toolsRouter,
 });
 
 export type AppRouter = typeof appRouter;
