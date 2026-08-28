@@ -1,18 +1,59 @@
+# Dependencies
 node_modules/
+.pnpm-store/
+
+# Production builds & dist
 dist/
+build/
+
+# Environment configurations & local secrets
 .env
 .env.local
+.env.*.local
 *.local
-.opencode-trace/
-.impeccable/
-*.log
-*.err
+
+# Database & SQLite files
 *.db
 *.sqlite
 *.db-journal
 *.db-wal
 *.db-shm
 backups/
+
+# Logs & Error reports
+*.log
+*.err
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Test artifacts & Browser automation outputs
 test-results/
 playwright-report/
-tmp-*
+blob-report/
+coverage/
+
+# Temporary files & scratchpads
+tmp-*/
+tmp/
+temp/
+scratch/
+
+# IDE & Editor caches
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Agent, Tooling & Trace internals
+.opencode/
+.opencode-trace/
+.impeccable/
+.agents/

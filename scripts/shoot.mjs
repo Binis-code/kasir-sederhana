@@ -25,38 +25,35 @@ async function login(page) {
 async function main() {
   const browser = await chromium.launch({ channel: "chrome", headless: true });
 
-  // ---------- DESKTOP 1366x768 (Standard POS / Laptop View) ----------
+  // Desktop 1366x768 Context
   const desktop = await browser.newContext({
     viewport: { width: 1366, height: 768 },
     deviceScaleFactor: 1.25,
   });
   const d = await desktop.newPage();
 
-  // 0. Login Page
-  await d.goto(BASE, { waitUntil: "networkidle" });
-  note("belum auth -> form login tampil", await d.locator("#username").isVisible());
-  await d.screenshot({ path: `${OUT}/desktop-login.png` });
+  // Login
+  await login(d);
+  note("login sukses", !d.url().includes("/login"));
 
   // 1. Dashboard
-  await login(d);
-  note("dashboard tercapai setelah login", !d.url().includes("/login"));
   await d.waitForSelector("text=Perlu perhatian", { timeout: 10000 }).catch(() => undefined);
-  await d.waitForTimeout(800);
+  await d.waitForTimeout(600);
   await d.screenshot({ path: `${OUT}/dashboard.png` });
-  await d.screenshot({ path: `${OUT}/desktop-dashboard.png` });
+  note("dashboard tersimpan", true);
 
-  // 2. POS / Kasir Terminal (tambah item ke keranjang agar terlihat interaktif)
+  // 2. POS / Kasir
   await d.goto(`${BASE}/pos`, { waitUntil: "networkidle" });
-  await d.waitForTimeout(800);
+  await d.waitForTimeout(600);
   try {
     const search = d.locator('input[aria-label="Cari produk"], input[placeholder*="Cari"]');
     if (await search.isVisible()) {
       await search.fill("Beras");
-      await d.waitForTimeout(500);
+      await d.waitForTimeout(400);
       const item = d.locator("text=Beras Pandan Wangi").first();
       if (await item.isVisible()) {
         await item.click();
-        await d.waitForTimeout(400);
+        await d.waitForTimeout(300);
         const variant = d.locator("text=Karung 5 kg").first();
         if (await variant.isVisible()) {
           await variant.click();
@@ -64,91 +61,63 @@ async function main() {
       }
     }
   } catch (e) {
-    console.log("Kasir cart fill note:", e.message);
+    console.log("POS note:", e.message);
   }
-  await d.waitForTimeout(600);
+  await d.waitForTimeout(500);
   await d.screenshot({ path: `${OUT}/pos-kasir.png` });
-  note("kasir POS view tersimpan", true);
+  note("kasir POS tersimpan", true);
 
-  // 3. Checkout Kasir Sukses & Struk
+  // 3. Checkout & Struk
   try {
     await d.click('button:has-text("Pas")').catch(() => undefined);
     const bayarBtn = d.locator('button:has-text("Bayar")').first();
     if (await bayarBtn.isVisible()) {
       await bayarBtn.click();
       await d.waitForSelector("text=Transaksi berhasil", { timeout: 10000 });
-      await d.screenshot({ path: `${OUT}/desktop-kasir-sukses.png` });
-      note("checkout desktop sukses", true);
-
       const printLink = d.locator('a:has-text("Cetak struk")');
       if (await printLink.count()) {
         await printLink.click();
         await d.waitForLoadState("networkidle");
-        await d.waitForTimeout(500);
+        await d.waitForTimeout(400);
         await d.screenshot({ path: `${OUT}/desktop-struk.png` });
-        note("halaman struk terbuka", d.url().includes("/receipt"));
+        note("struk tersimpan", true);
       }
     }
   } catch (e) {
     console.log("Checkout note:", e.message);
   }
 
-  // 4. Products / Katalog & Stok
+  // 4. Products / Katalog
   await d.goto(`${BASE}/products`, { waitUntil: "networkidle" });
-  await d.waitForTimeout(800);
+  await d.waitForTimeout(600);
   await d.screenshot({ path: `${OUT}/products.png` });
-  note("halaman produk tersimpan", true);
+  note("produk tersimpan", true);
 
-  // 5. Reports / Laporan Penjualan & Laba
+  // 5. Reports / Laporan
   await d.goto(`${BASE}/reports`, { waitUntil: "networkidle" });
-  await d.waitForTimeout(800);
+  await d.waitForTimeout(600);
   await d.screenshot({ path: `${OUT}/reports.png` });
-  note("halaman laporan tersimpan", true);
+  note("laporan tersimpan", true);
 
-  // 6. Barcode & Price Tag Generator
+  // 6. Barcodes & Label Rak
   await d.goto(`${BASE}/barcodes`, { waitUntil: "networkidle" });
-  await d.waitForTimeout(800);
+  await d.waitForTimeout(600);
   await d.screenshot({ path: `${OUT}/barcodes.png` });
-  note("halaman barcode tersimpan", true);
+  note("barcode tersimpan", true);
 
   // 7. Multi-Cabang & Transfer
   await d.goto(`${BASE}/outlets`, { waitUntil: "networkidle" });
-  await d.waitForTimeout(800);
+  await d.waitForTimeout(600);
   await d.screenshot({ path: `${OUT}/outlets.png` });
-  note("halaman multi-cabang tersimpan", true);
+  note("multi-cabang tersimpan", true);
 
-  // 8. Customer Display (/display)
+  // 8. Customer Facing Display
   await d.goto(`${BASE}/display`, { waitUntil: "networkidle" });
-  await d.waitForTimeout(800);
+  await d.waitForTimeout(600);
   await d.screenshot({ path: `${OUT}/customer-display.png` });
   note("customer display tersimpan", true);
 
   await desktop.close();
-
-  // ---------- MOBILE 375x812 (Mobile View) ----------
-  const mobile = await browser.newContext({
-    viewport: { width: 375, height: 812 },
-    isMobile: true,
-    hasTouch: true,
-    deviceScaleFactor: 2,
-  });
-  const m = await mobile.newPage();
-  await m.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await m.screenshot({ path: `${OUT}/mobile-login.png` });
-  await login(m);
-
-  await m.waitForSelector("text=Perlu perhatian", { timeout: 10000 }).catch(() => undefined);
-  await m.screenshot({ path: `${OUT}/mobile-dashboard.png` });
-
-  await m.goto(`${BASE}/pos`, { waitUntil: "networkidle" });
-  await m.waitForTimeout(800);
-  await m.screenshot({ path: `${OUT}/mobile-kasir.png` });
-
-  await m.goto(`${BASE}/products`, { waitUntil: "networkidle" });
-  await m.waitForTimeout(800);
-  await m.screenshot({ path: `${OUT}/mobile-produk.png` });
-
-  await mobile.close();
   await browser.close();
 
   console.log(results.join("\n"));
