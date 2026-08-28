@@ -57,3 +57,5 @@ Thumbs.db
 .opencode-trace/
 .impeccable/
 .agents/
+*Prompt*.md
+*prompt*.md
