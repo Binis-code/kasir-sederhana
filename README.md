@@ -6,33 +6,42 @@ Aplikasi Kasir (Point of Sale) & Operasional Toko Retail / Kelontong modern, rin
 
 ---
 
-## Fitur Utama
+## Fitur Lengkap Kios Nusa POS
 
-- **Embedded SQLite Database**: Berjalan otomatis langsung ke file `kios_nusa.db` via `@libsql/client` (tanpa perlu MySQL/Docker).
-- **Kasir & POS Cepat**:
-  - Scan barcode kamera langsung (`BarcodeDetector` API).
-  - Tahan / Parkir Keranjang (Hold Carts & Pending Orders) dengan label penanda & restore instan.
-  - Multi-varian produk & harga grosir bertingkat (Tiered Wholesale Pricing).
-  - Berbagai metode pembayaran (Cash, QRIS, Debit, Piutang).
-- **Struk Digital & Thermal**:
-  - Kirim struk pembelian langsung ke WhatsApp pelanggan dalam format teks markdown rapi.
-  - Cetak struk thermal dengan toggle ukuran kertas 58 mm & 80 mm.
-- **Manajemen Shift & Rekonsiliasi Laci Kas (Cash Drawer)**:
-  - Buka shift dengan input modal kas awal.
-  - Tutup shift dengan rekonsiliasi fisik kas laci vs ekspektasi sistem beserta catatan selisih (`cashDiff`).
-- **Pembelian & Smart Reorder (Auto-PO)**:
-  - Analisis laju penjualan 7 hari terakhir (*sales velocity*).
-  - Rekomendasi kuantitas pesan ulang otomatis dan pembuatan PO 1-klik.
-- **Inventori & Stok Opname**:
-  - Pelacakan mutasi stok otomatis per transaksi kasir dan penerimaan PO.
-  - Manajemen stok opname berkala.
-- **Laporan & Export CSV**:
-  - Rekap penjualan harian, metode bayar, produk terlaris, laba kotor, dan estimasi laba bersih.
-  - Export satu klik laporan keuangan dan penjualan ke file `.csv`.
-- **Backup Database 1-Klik**:
-  - Snapshot file database SQLite instan ke folder `backups/`.
-- **PWA (Progressive Web App)**:
-  - Dapat di-install langsung ke homescreen Android / iOS / Desktop sebagai aplikasi mandiri.
+### 1. Kasir & Transaksi Cepat
+- **Scan Barcode Kamera**: Deteksi barcode instan via kamera perangkat (`BarcodeDetector` API).
+- **Layar Pelanggan (Customer Facing Display)**: Monitor sekunder sinkronisasi real-time via `BroadcastChannel` (`/display`).
+- **Tahan / Parkir Keranjang (Hold Carts)**: Parkir pesanan pelanggan sementara & pulihkan instan.
+- **AI Rekomendasi Cross-Selling**: Rekomendasi produk pendamping otomatis berdasarkan histori belanja.
+- **Harga Grosir Bertingkat (Tiered Wholesale Pricing)**: Potongan harga otomatis berdasarkan kuantitas beli.
+- **Multi Metode Pembayaran**: Tunai (Cash), QRIS, Debit, dan Piutang (Kredit Jatuh Tempo).
+- **Trigger Laci Kas (Cash Drawer Kick)**: Sinyal `ESC p 0 25 250` untuk membuka laci kas otomatis.
+
+### 2. Struk Digital & Thermal
+- **WhatsApp Digital Receipt**: Kirim nota belanja berformat rapi langsung ke nomor WhatsApp pelanggan.
+- **Cetak Struk Thermal**: Format cetak kompatibel ukuran 58 mm dan 80 mm.
+
+### 3. Multi-Cabang & Transfer Stok (Multi-Outlet)
+- **Isolasi Stok per Cabang**: Manajemen outlet/toko cabang dan gudang terpisah.
+- **Surat Jalan & Transfer Stok**: Alur pengiriman & konfirmasi penerimaan barang antar-cabang.
+
+### 4. Manajemen Stok & Kadaluarsa
+- **Pelacakan Mutasi Inventori Otomatis**: Riwayat keluar/masuk per transaksi kasir, PO, dan penyesuaian.
+- **Pelacakan Batch & Kadaluarsa (Expiry Tracker)**: Peringatan otomatis untuk produk mendekati kadaluarsa dalam 60 hari.
+- **Saran Reorder Otomatis (Auto-PO)**: Rekomendasi pemesanan ulang berdasarkan kecepatan penjualan 7 hari terakhir (*sales velocity*).
+- **Stok Opname Berkala**: Formulir audit stok fisik vs sistem.
+
+### 5. Alat Bantu Toko & Import Data
+- **Cetak Barcode & Label Harga Rak**: Generator stiker barcode produk & label harga rak toko siap cetak.
+- **Import Massal Produk (CSV / Spreadsheet)**: Tambah ratusan produk sekaligus dengan template spreadsheet.
+- **Export Laporan CSV**: Unduh rekap penjualan harian, metode bayar, produk terlaris, dan laba rugi ke file `.csv`.
+
+### 6. Keuangan, Shift & Keamanan
+- **Manajemen Shift Kasir**: Buka shift dengan modal awal & tutup shift dengan rekonsiliasi uang fisik laci kas (`cashDiff`).
+- **Buku Kas Operasional**: Catat kas masuk dan biaya pengeluaran harian toko.
+- **Buku Piutang Pelanggan**: Catat piutang, tanggal jatuh tempo, dan riwayat cicilan pelunasan.
+- **Backup Database 1-Klik**: Snapshot cadangan database SQLite instan ke folder `backups/`.
+- **PWA (Progressive Web App)**: Install sebagai aplikasi mandiri di Android / iOS / Desktop.
 
 ---
 
@@ -59,7 +68,8 @@ pnpm db:seed
 pnpm dev
 ```
 
-Aplikasi langsung dapat diakses di browser: **[http://localhost:5173](http://localhost:5173)**.
+Aplikasi langsung dapat diakses di browser: **[http://localhost:5173](http://localhost:5173)**  
+Layar display pelanggan: **[http://localhost:5173/display](http://localhost:5173/display)**
 
 ---
 
@@ -71,33 +81,19 @@ Aplikasi langsung dapat diakses di browser: **[http://localhost:5173](http://loc
 | **Admin** | `admin` | `admin123` |
 | **Kasir** | `kasir` | `kasir123` |
 
-> *Catatan: Segera perbarui password melalui menu Pengguna (Sistem) setelah login pertama kali.*
-
 ---
 
 ## Testing & Verifikasi
 
 ```bash
-# Unit test Vitest (22 passing)
+# Unit test Vitest (22 passed)
 pnpm test
 
-# Type check TypeScript (0 error)
+# Type check TypeScript (0 errors)
 pnpm check
 
-# Visual smoke & E2E browser tests (10 passing)
+# Visual smoke & E2E browser tests (10 passed)
 node scripts/shoot.mjs
-```
-
----
-
-## Struktur Folder
-
-```
-client/src/pages/    # Halaman UI (Kasir, Shift, Purchases, Inventory, Reports, ...)
-server/routers/      # API tRPC backend (pos, shifts, backup, purchases, reports, ...)
-drizzle/schema.ts    # Skema SQLite database Drizzle
-shared/money.ts      # Utility kalkulasi rupiah, harga bertingkat, nota WA, CSV generator
-public/manifest.json # PWA Web App Manifest
 ```
 
 ---
